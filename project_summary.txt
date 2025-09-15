@@ -1,0 +1,47 @@
+Video RSS Aggregator - Bilibili Personalized Recommendations with Audio Transcription
+===============================================================================
+
+PROJECT OVERVIEW
+- Bilibili personalized video recommendation fetcher with audio transcription
+- Uses user credentials (SESSDATA, BILI_JCT, BUVID3) for authenticated API access
+- Audio transcription via Whisper + LLM summarization via Qwen3-8B-4bit
+- FastAPI backend + React frontend architecture
+
+KEY COMPONENTS
+1. bilibili_recommendations.py - Fetches personalized recommendations from Bilibili API
+2. audio_transcriber.py - Whisper transcription + Qwen3-8B-4bit summarization
+3. simple_backend.py - FastAPI backend with /api/recommendations/bilibili endpoint
+4. frontend/ - React app with TailwindCSS, proxy to backend
+5. rust-video-core/ - Rust transcription modules (CUDA/ROCm/Metal/OpenVINO/CPU)
+
+AUTHENTICATION
+- Environment variables: BILIBILI_SESSDATA, BILIBILI_BILI_JCT, BILIBILI_BUVID3
+- Authenticated session with proper headers and cookies
+- API endpoints: /x/web-interface/index/top/rcmd (primary), feed API (fallback)
+
+TRANSCRIPTION PIPELINE
+- Whisper for audio-to-text transcription
+- Qwen3-8B-4bit with 4-bit quantization for summarization
+- Generates one-sentence summaries for video subtitles
+- Supports multiple GPU backends (CUDA, ROCm, Metal, OpenVINO, CPU fallback)
+
+CURRENT STATUS
+- Personalized recommendation fetching: COMPLETED
+- Audio transcription framework: IMPLEMENTED (needs dependencies)
+- Backend API integration: COMPLETED
+- Frontend proxy: NEEDS FIX (port 8000 vs 8001)
+- Dependencies needed: pip install openai-whisper transformers bitsandbytes accelerate
+
+TECHNICAL FEATURES
+- AsyncIO patterns with context managers
+- Unicode handling for Chinese content
+- Multi-backend GPU acceleration support
+- Voice Activity Detection optimization
+- Batch processing for improved throughput
+- Fallback mechanisms for model failures
+
+NEXT STEPS
+1. Install ML dependencies (whisper, transformers, bitsandbytes, accelerate)
+2. Test complete transcription pipeline
+3. Fix frontend proxy configuration
+4. Integrate transcription into recommendation endpoint

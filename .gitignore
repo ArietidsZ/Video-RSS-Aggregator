@@ -1,0 +1,136 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+venv-*/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables
+.env
+.env.local
+*.env
+
+# API Keys and Secrets
+config/secrets.yaml
+cookies/
+*.key
+*.pem
+*.crt
+
+# Temporary files
+tmp/
+temp/
+/tmp/
+*.tmp
+
+# Test outputs
+*.json
+!package.json
+!tsconfig.json
+test_output/
+local_video_analysis_result.json
+video_info_*.json
+local_video_output.log
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Frontend build
+frontend/build/
+frontend/dist/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Model files
+*.pth
+*.pt
+*.onnx
+*.pb
+*.h5
+models/
+
+# Media files
+*.mp4
+*.avi
+*.mov
+*.webm
+*.mp3
+*.wav
+*.m4a
+
+# Data files
+data/
+downloads/
+
+# Private tokens - NEVER commit these
+github_token.txt
+*_token.txt
+credentials.json
+
+# Rust
+rust-video-core/target/
+rust-video-core/Cargo.lock
+*.rlib
+*.rmeta
+
+# Go
+go-api-server/go.sum
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Frontend additional
+frontend/.env
+frontend/package-lock.json
+frontend/.cache/
+frontend/dist/
