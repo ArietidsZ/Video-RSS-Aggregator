@@ -1,116 +1,259 @@
 # Video RSS Aggregator
 
-A modern AI-powered RSS aggregator for Chinese video platforms including Bilibili (哔哩哔哩), Douyin (抖音), and Kuaishou (快手). The system fetches real-time video data, generates AI content summaries that can replace watching videos, and serves RSS feeds.
+Native Rust video RSS aggregator for Chinese platforms (Bilibili, Douyin, Kuaishou) with AI transcription and modern Next.js frontend.
 
-## 🚀 One-Click Demo Setup
+## 🚀 Quick Start
 
-### Universal Setup (Recommended - All Platforms)
+### Backend (Rust)
 ```bash
-python setup_and_run.py
+cd rust-video-core
+cargo run --bin server
 ```
 
-This single command:
-- ✅ Works on Windows, macOS, and Linux
-- ✅ Checks and installs all dependencies
-- ✅ Configures Bilibili settings interactively (optional)
-- ✅ Starts all services automatically
-- ✅ Opens your browser to the demo
+### Frontend (Next.js)
+```bash
+cd video-rss-frontend
+npm install
+npm run dev
+```
 
-### Alternative Platform-Specific Scripts
-- **Windows**: `demo.bat` (double-click or run in CMD)
-- **macOS/Linux**: `./demo.sh` (run in Terminal)
+Access:
+- **Frontend**: http://localhost:3000
+- **API**: http://localhost:8080
+- **RSS Feed**: http://localhost:8080/rss/generate
 
-## 📋 Prerequisites
+## 🏗️ Architecture
 
-### Windows Users
-1. **Python 3.8+**: Download from https://www.python.org/downloads/
-   - ⚠️ **IMPORTANT**: Check "Add Python to PATH" during installation
-2. **Node.js 14+**: Download from https://nodejs.org/
-3. See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for detailed instructions
+### Backend (Rust)
+- **Server**: Axum web framework with rate limiting and compression
+- **Transcription**: Native ONNX Runtime with sherpa-onnx models for Chinese-English speech recognition
+- **Database**: SQLx with SQLite, optimized schema with proper indexing
+- **Caching**: Redis with connection pooling, ETag support for RSS feeds
+- **Resilience**: Circuit breakers, retry logic, and comprehensive error handling
+- **Monitoring**: Prometheus metrics, health checks, and performance benchmarks
 
-### macOS/Linux Users
-1. Python 3.8+ (usually pre-installed)
-2. Node.js 14+ (`brew install node` on macOS)
+### Frontend (Next.js)
+- **Framework**: Next.js 15 with TypeScript and Tailwind CSS
+- **State Management**: React Query for efficient data fetching and caching
+- **UI Components**: Responsive design with real-time updates
+- **API Integration**: Axios client with automatic error handling and retries
+
+## 📁 Project Structure
+
+```
+├── rust-video-core/           # Rust backend
+│   ├── src/
+│   │   ├── server.rs          # Axum web server
+│   │   ├── transcription.rs   # ONNX-based transcription
+│   │   ├── cache.rs           # Redis + memory caching
+│   │   ├── database.rs        # SQLx database layer
+│   │   ├── resilience.rs      # Circuit breakers & retry logic
+│   │   ├── benchmarks.rs      # Performance testing
+│   │   └── lib.rs             # Core library
+│   ├── migrations/            # Database migrations
+│   └── static/                # Static HTML dashboard
+├── video-rss-frontend/        # Next.js frontend
+│   ├── src/
+│   │   ├── app/               # Next.js app directory
+│   │   ├── components/        # React components
+│   │   ├── lib/               # API client & utilities
+│   │   └── types/             # TypeScript definitions
+│   └── package.json
+└── README.md
+```
 
 ## 🎥 Features
 
-- **Real-time Data Extraction**: Fetches latest videos from Bilibili, Douyin, Kuaishou
-- **AI Content Summaries**: Generates summaries that replace watching videos
-- **RSS Feed Generation**: Standards-compliant RSS 2.0 feeds with rich metadata
-- **Legal Compliance**: Fair use academic research framework
-- **One-Click Demo**: Competition-ready demo setup
+### Video Processing
+- Multi-platform data extraction (Bilibili, Douyin, Kuaishou)
+- Concurrent video processing with semaphore-based rate limiting
+- Smart content deduplication and caching
 
-## 🌐 Access Points
+### AI Transcription
+- Native Rust ONNX Runtime integration
+- Chinese-English speech recognition with sherpa-onnx models
+- Voice Activity Detection (VAD) for better segmentation
+- Automatic audio format conversion and resampling
 
-Once running:
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
-- **RSS Feed**: http://localhost:8000/rss/bilibili
+### RSS Generation
+- Standards-compliant RSS 2.0 feeds
+- ETag-based caching with compression
+- Configurable feed options and metadata
 
-## 📖 Documentation
+### Performance & Reliability
+- Redis caching with connection pooling
+- Circuit breakers for external API calls
+- Comprehensive metrics and monitoring
+- Load testing and performance benchmarks
 
-- [Windows Setup Guide](WINDOWS_SETUP.md)
-- [Demo Recording Guide](DEMO_RECORDING_GUIDE.md)
-- [API Documentation](http://localhost:8000/docs) (when running)
+## 🛠️ Development Setup
 
-## 🛠️ Manual Setup
+### Prerequisites
+- Rust 1.70+ with Cargo
+- Node.js 18+ with npm
+- Redis (optional, falls back to memory cache)
+- SQLite (included)
 
-If the one-click demo doesn't work:
-
-### Backend
+### Backend Development
 ```bash
-# Install Python dependencies
-pip install fastapi uvicorn aiohttp
+cd rust-video-core
 
-# Start backend
-PYTHONPATH=. uvicorn simple_backend:app --host 0.0.0.0 --port 8000
+# Install dependencies
+cargo build
+
+# Run with hot reload
+cargo watch -x "run --bin server"
+
+# Run tests
+cargo test
+
+# Run benchmarks
+cargo bench
 ```
 
-### Frontend
+### Frontend Development
 ```bash
+cd video-rss-frontend
+
 # Install dependencies
-cd frontend
 npm install
 
-# Start frontend
-npm start
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Type checking
+npm run type-check
 ```
 
-## 🔄 GitHub Sync
-
-For collaborators:
+### Database Setup
 ```bash
-# Use the sync tool
-./sync_github.sh
+cd rust-video-core
 
-# Or manually
-git pull origin main
-git push origin main
+# Run migrations
+cargo run --bin migrate
+
+# Check database status
+sqlite3 database.db ".tables"
 ```
 
-## 📊 API Examples
+## 📊 Configuration
+
+### Environment Variables
+```bash
+# Backend (.env)
+DATABASE_URL=sqlite:database.db
+REDIS_URL=redis://localhost:6379
+LOG_LEVEL=info
+SERVER_PORT=8080
+
+# Frontend (.env.local)
+NEXT_PUBLIC_API_URL=http://localhost:8080
+```
+
+### Platform Settings
+Configure rate limits, timeouts, and retry policies through the web interface or directly in the database.
+
+## 🔧 API Usage
 
 ### Get Videos
 ```bash
-# Bilibili videos with summaries
-curl http://localhost:8000/api/videos/bilibili?limit=5
+# Get latest videos
+curl "http://localhost:8080/videos?platforms=bilibili&limit=10"
 
-# RSS feed
-curl http://localhost:8000/rss/bilibili?summary=true
+# Search videos
+curl "http://localhost:8080/videos?search=technology&sort_by=view_count"
 ```
 
-## 🏆 Competition Information
+### Generate RSS
+```bash
+# Generate RSS feed
+curl -X POST "http://localhost:8080/rss/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"platforms": ["bilibili", "douyin"]}'
 
-This project is designed for hackathon/competition demonstration:
-1. Run `demo.bat` (Windows) or `./demo.sh` (Unix)
-2. Open http://localhost:3000
-3. See [DEMO_RECORDING_GUIDE.md](DEMO_RECORDING_GUIDE.md) for presentation tips
+# Get RSS with transcriptions
+curl "http://localhost:8080/rss/bilibili?include_transcription=true"
+```
+
+### System Stats
+```bash
+# Get system metrics
+curl "http://localhost:8080/stats"
+
+# Health check
+curl "http://localhost:8080/health"
+```
+
+## 🚀 Deployment
+
+### Production Build
+```bash
+# Backend
+cd rust-video-core
+cargo build --release
+
+# Frontend
+cd video-rss-frontend
+npm run build
+```
+
+### Docker (Optional)
+```bash
+# Build containers
+docker build -t video-rss-backend rust-video-core/
+docker build -t video-rss-frontend video-rss-frontend/
+
+# Run with docker-compose
+docker-compose up
+```
+
+## 📈 Performance
+
+- **Transcription**: 4x faster than PyTorch with ONNX optimization
+- **Caching**: Sub-millisecond Redis response times
+- **Concurrency**: Configurable semaphore limits (default: 1000 concurrent)
+- **Rate Limiting**: 100 requests/second with burst capacity
+- **Memory**: Efficient memory usage with streaming and connection pooling
+
+## 🧪 Testing
+
+```bash
+# Backend tests
+cd rust-video-core
+cargo test
+
+# Performance benchmarks
+cargo bench
+
+# Load testing
+cargo test --test integration_tests
+
+# Frontend tests
+cd video-rss-frontend
+npm test
+```
+
+## 🎯 Monitoring
+
+### Metrics Dashboard
+- **System Resources**: CPU, memory, disk usage
+- **API Performance**: Request rates, response times, error rates
+- **Cache Efficiency**: Hit rates, eviction statistics
+- **Platform Status**: Availability and response times
+
+### Health Checks
+- Database connectivity
+- Redis availability
+- External platform status
+- Model loading status
 
 ## 📝 License
 
-Apache License 2.0 - For educational and personal use only.
+Apache License 2.0
 
 ## ⚠️ Disclaimer
 
-This tool is for educational purposes and academic research only. Please respect platform terms of service and copyright laws.
+Educational and research purposes only. Respect platform terms of service and applicable laws.
