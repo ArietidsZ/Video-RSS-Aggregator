@@ -46,6 +46,7 @@ app.add_middleware(
 import aiohttp
 import asyncio
 from typing import Optional
+from rust_video_core import BilibiliClient, RssGenerator, ContentAnalyzer
 
 # Real video data cache
 REAL_VIDEO_CACHE = {
@@ -106,27 +107,52 @@ async def get_manifest():
     }
 
 async def refresh_real_data():
-    """Refresh real data cache using real extractor"""
+    """Refresh real data cache using Rust-powered extractor"""
     try:
-        from real_data_extractor import RealDataExtractor
-        from bilibili_recommendations import BilibiliRecommendationFetcher
+        print("[INFO] Refreshing real data cache with Rust-powered extraction...")
 
-        print("[INFO] Refreshing real data cache with live extraction...")
+        # Use Rust-powered Bilibili client for high-performance data extraction
+        credentials = {}
+        sessdata = os.getenv('BILIBILI_SESSDATA', '')
+        bili_jct = os.getenv('BILIBILI_BILI_JCT', '')
+        buvid3 = os.getenv('BILIBILI_BUVID3', '')
 
-        # Use real data extractor to get live data
-        async with RealDataExtractor() as extractor:
-            real_data = await extractor.extract_all_real_data()
+        if sessdata and sessdata not in ['', 'your_sessdata_here', 'demo_mode']:
+            credentials = {
+                'sessdata': sessdata,
+                'bili_jct': bili_jct,
+                'buvid3': buvid3
+            }
 
-            # Update cache with real data
-            for platform, videos in real_data.items():
-                REAL_VIDEO_CACHE[platform] = videos
+        from rust_video_core import FetchOptions
+        client = BilibiliClient(credentials if credentials else None)
+
+        # Fetch recommendations using Rust implementation
+        options = FetchOptions(
+            limit=20,
+            include_transcription=False,
+            personalized=bool(credentials),
+            credentials=credentials if credentials else None
+        )
+        bilibili_videos = await client.fetch_recommendations(options)
+        REAL_VIDEO_CACHE["bilibili"] = bilibili_videos
+
+        # For other platforms, try fallback extraction
+        try:
+            from real_data_extractor import RealDataExtractor
+            async with RealDataExtractor() as extractor:
+                douyin_data = await extractor.extract_douyin_data()
+                kuaishou_data = await extractor.extract_kuaishou_data()
+                REAL_VIDEO_CACHE["douyin"] = douyin_data
+                REAL_VIDEO_CACHE["kuaishou"] = kuaishou_data
+        except:
+            print("[INFO] Fallback extractors not available, using Bilibili data only")
 
         total_videos = sum(len(v) for v in REAL_VIDEO_CACHE.values())
-        print(f"[OK] Real data cache refreshed: {total_videos} total videos from live APIs")
+        print(f"[OK] Real data cache refreshed: {total_videos} total videos (Rust-powered)")
 
     except Exception as e:
-        print(f"[ERROR] Real data extraction failed: {e}")
-        # No fallback - keep cache empty for real data only
+        print(f"[ERROR] Rust data extraction failed: {e}")
         await populate_sample_data()
 
 async def populate_sample_data():
@@ -171,47 +197,37 @@ async def get_platform_videos(platform: str, limit: int = 10, include_summary: b
 
 @app.get("/api/recommendations/bilibili")
 async def get_bilibili_recommendations(limit: int = 20, include_transcription: bool = False):
-    """Get personalized Bilibili recommendations using user credentials"""
+    """Get personalized Bilibili recommendations using Rust-powered client"""
     try:
-        from bilibili_recommendations import BilibiliRecommendationFetcher
+        print(f"[INFO] Fetching {limit} personalized Bilibili recommendations with Rust client...")
 
-        print(f"[INFO] Fetching {limit} personalized Bilibili recommendations...")
+        # Get credentials from environment
+        credentials = {}
+        sessdata = os.getenv('BILIBILI_SESSDATA', '')
+        bili_jct = os.getenv('BILIBILI_BILI_JCT', '')
+        buvid3 = os.getenv('BILIBILI_BUVID3', '')
 
-        async with BilibiliRecommendationFetcher() as fetcher:
-            recommendations = await fetcher.fetch_recommendations(limit)
+        if sessdata and sessdata not in ['', 'your_sessdata_here', 'demo_mode']:
+            credentials = {
+                'sessdata': sessdata,
+                'bili_jct': bili_jct,
+                'buvid3': buvid3
+            }
 
-        # Add transcription if requested
-        if include_transcription and recommendations:
-            try:
-                from audio_transcriber import AudioTranscriber
-                print(f"[INFO] Adding transcription to {len(recommendations)} videos...")
+        # Use Rust-powered BilibiliClient for high performance
+        from rust_video_core import FetchOptions
+        client = BilibiliClient(credentials if credentials else None)
 
-                async with AudioTranscriber() as transcriber:
-                    for video in recommendations:
-                        video_url = video.get('url', '')
-                        # Use full video data - the transcriber handles encoding issues internally
-                        transcription_result = await transcriber.transcribe_video_audio(video_url, video)
+        options = FetchOptions(
+            limit=limit,
+            include_transcription=include_transcription,
+            personalized=bool(credentials),
+            credentials=credentials if credentials else None
+        )
 
-                        # Add transcription data to video
-                        video['transcription'] = {
-                            'summary': transcription_result.get('summary', ''),
-                            'transcript': transcription_result.get('transcript', ''),
-                            'paragraph_summary': transcription_result.get('paragraph_summary', ''),
-                            'sentence_subtitle': transcription_result.get('sentence_subtitle', ''),
-                            'existing_subtitles': transcription_result.get('existing_subtitles', ''),
-                            'audio_transcript': transcription_result.get('audio_transcript', ''),
-                            'status': transcription_result.get('status', 'unavailable'),
-                            'model_info': transcription_result.get('model_info', {}),
-                            'source_types': transcription_result.get('source_types', [])
-                        }
+        recommendations = await client.fetch_recommendations(options)
 
-                print(f"[SUCCESS] Added transcription to recommendations")
-
-            except Exception as transcription_error:
-                # Don't print the error at all to avoid encoding issues
-                pass  # Continue silently - transcriber should have handled internal errors
-
-        print(f"[SUCCESS] Retrieved {len(recommendations)} personalized recommendations")
+        print(f"[SUCCESS] Retrieved {len(recommendations)} personalized recommendations (Rust-powered)")
 
         return {
             "platform": "bilibili",
@@ -219,8 +235,8 @@ async def get_bilibili_recommendations(limit: int = 20, include_transcription: b
             "count": len(recommendations),
             "videos": recommendations,
             "timestamp": datetime.now().isoformat(),
-            "data_source": "bilibili_recommendation_api",
-            "authenticated": True,
+            "data_source": "rust_bilibili_client",
+            "authenticated": bool(credentials),
             "transcription_enabled": include_transcription
         }
 
@@ -252,29 +268,26 @@ async def get_supported_platforms():
 
 @app.get("/api/analyze/video")
 async def analyze_single_video(video_url: str):
-    """Analyze single video using legal content analysis"""
-    from chinese_content_analyzer import ChineseContentAnalyzer
-
+    """Analyze single video using Rust-powered content analysis"""
     if not video_url:
         raise HTTPException(status_code=400, detail="video_url parameter required")
 
     try:
-        async with ChineseContentAnalyzer() as analyzer:
-            if "bilibili.com" in video_url:
-                result = await analyzer.analyze_bilibili_video(video_url)
-            elif "douyin.com" in video_url:
-                result = await analyzer.analyze_douyin_video(video_url)
-            elif "kuaishou.com" in video_url:
-                result = await analyzer.analyze_kuaishou_video(video_url)
-            else:
-                raise HTTPException(status_code=400, detail="Unsupported platform")
+        # Use Rust-powered BilibiliClient to fetch video info
+        client = BilibiliClient()
+        video_info = await client.fetch_video_info(video_url)
 
-            return {
-                "analysis_result": result,
-                "legal_compliance": "Fair Use Academic Research",
-                "analysis_method": "Streaming + Transcript Extraction",
-                "timestamp": datetime.now().isoformat()
-            }
+        # Use Rust-powered ContentAnalyzer for high-performance analysis
+        analyzer = ContentAnalyzer()
+        analysis_result = await analyzer.analyze_video(video_info)
+
+        return {
+            "video_info": video_info,
+            "analysis_result": analysis_result,
+            "legal_compliance": "Fair Use Academic Research",
+            "analysis_method": "Rust-powered Content Analysis",
+            "timestamp": datetime.now().isoformat()
+        }
 
     except Exception as e:
         return {
@@ -284,9 +297,7 @@ async def analyze_single_video(video_url: str):
 
 @app.post("/api/analyze/batch")
 async def analyze_batch_videos(video_urls: List[str]):
-    """Batch analyze multiple videos for academic research"""
-    from chinese_content_analyzer import ChineseContentAnalyzer
-
+    """Batch analyze multiple videos using Rust-powered analysis"""
     if not video_urls:
         raise HTTPException(status_code=400, detail="video_urls required")
 
@@ -294,16 +305,29 @@ async def analyze_batch_videos(video_urls: List[str]):
         raise HTTPException(status_code=400, detail="Maximum 10 videos per batch")
 
     try:
-        async with ChineseContentAnalyzer() as analyzer:
-            results = await analyzer.batch_analyze_videos(video_urls)
+        # Use Rust-powered clients for high-performance batch processing
+        client = BilibiliClient()
+        analyzer = ContentAnalyzer()
 
-            return {
-                "batch_results": results,
-                "total_analyzed": len(results),
-                "legal_compliance": "Fair Use Academic Research",
-                "analysis_method": "Batch Content Analysis",
-                "timestamp": datetime.now().isoformat()
-            }
+        # Fetch video info for all URLs
+        video_infos = []
+        for url in video_urls:
+            try:
+                video_info = await client.fetch_video_info(url)
+                video_infos.append(video_info)
+            except Exception as e:
+                print(f"[WARNING] Failed to fetch video info for {url}: {e}")
+
+        # Batch analyze all videos using Rust
+        results = await analyzer.batch_analyze(video_infos)
+
+        return {
+            "batch_results": results,
+            "total_analyzed": len(results),
+            "legal_compliance": "Fair Use Academic Research",
+            "analysis_method": "Rust-powered Batch Analysis",
+            "timestamp": datetime.now().isoformat()
+        }
 
     except Exception as e:
         return {
@@ -392,13 +416,33 @@ async def get_rss_feed(platform: str, limit: int = 10, summary: bool = True, per
     # Use personalized recommendations if requested and available
     if personalized and platform == "bilibili":
         try:
-            from bilibili_recommendations import BilibiliRecommendationFetcher
-            print(f"[INFO] Using personalized Bilibili recommendations for RSS feed...")
+            print(f"[INFO] Using Rust-powered personalized Bilibili recommendations for RSS feed...")
 
-            async with BilibiliRecommendationFetcher() as fetcher:
-                videos = await fetcher.fetch_recommendations(limit)
+            # Get credentials from environment
+            credentials = {}
+            sessdata = os.getenv('BILIBILI_SESSDATA', '')
+            bili_jct = os.getenv('BILIBILI_BILI_JCT', '')
+            buvid3 = os.getenv('BILIBILI_BUVID3', '')
 
-            print(f"[SUCCESS] Retrieved {len(videos)} personalized videos for RSS")
+            if sessdata and sessdata not in ['', 'your_sessdata_here', 'demo_mode']:
+                credentials = {
+                    'sessdata': sessdata,
+                    'bili_jct': bili_jct,
+                    'buvid3': buvid3
+                }
+
+            from rust_video_core import FetchOptions
+            client = BilibiliClient(credentials if credentials else None)
+
+            options = FetchOptions(
+                limit=limit,
+                include_transcription=full_transcription,
+                personalized=bool(credentials),
+                credentials=credentials if credentials else None
+            )
+            videos = await client.fetch_recommendations(options)
+
+            print(f"[SUCCESS] Retrieved {len(videos)} personalized videos for RSS (Rust-powered)")
         except Exception as e:
             print(f"[ERROR] Personalized fetch failed: {e}")
             # Fallback to cache
@@ -418,134 +462,46 @@ async def get_rss_feed(platform: str, limit: int = 10, summary: bool = True, per
         else:
             videos = REAL_VIDEO_CACHE.get(platform, [])[:limit]
 
-    # Add full AI transcription if requested
-    if full_transcription and videos:
-        try:
-            from audio_transcriber import AudioTranscriber
-            print(f"[INFO] Adding full AI transcription to {len(videos)} RSS videos...")
+    # Use Rust-powered RSS generation for high performance
+    try:
+        print(f"[INFO] Generating RSS feed using Rust-powered RSS generator...")
 
-            async with AudioTranscriber() as transcriber:
-                for video in videos:
-                    try:
-                        video_url = video.get('url', '')
-                        transcription_result = await transcriber.transcribe_video_audio(video_url, video)
+        # Configure RSS generator
+        rss_config = {
+            "title": f"AI智能内容摘要 - {platform.title()} 精选视频",
+            "description": "基于人工智能技术的中文视频平台内容聚合与智能分析 - Rust性能加速",
+            "link": "http://localhost:3000",
+            "language": "zh-CN",
+            "generator": "Rust Video RSS Core v1.0"
+        }
 
-                        # Add full transcription data to video
-                        video['full_transcription'] = {
-                            'paragraph_summary': transcription_result.get('paragraph_summary', ''),
-                            'sentence_subtitle': transcription_result.get('sentence_subtitle', ''),
-                            'full_transcript': transcription_result.get('transcript', ''),
-                            'status': transcription_result.get('status', 'unavailable'),
-                            'model_info': transcription_result.get('model_info', {}),
-                            'source_types': transcription_result.get('source_types', [])
-                        }
+        generator = RssGenerator(rss_config)
 
-                        # Also update the ai_summary field for RSS compatibility
-                        if transcription_result.get('paragraph_summary'):
-                            video['ai_summary'] = transcription_result.get('paragraph_summary', '')
+        # Generate RSS feed using Rust implementation
+        if summary:
+            rss_xml = generator.generate_feed_with_summary(videos, include_ai_summary=True)
+        else:
+            rss_xml = generator.generate_feed(videos)
 
-                    except Exception as video_error:
-                        print(f"[WARNING] Transcription failed for video: {video.get('title', 'unknown')[:50]}")
-                        video['full_transcription'] = {
-                            'paragraph_summary': '',
-                            'sentence_subtitle': '',
-                            'full_transcript': '',
-                            'status': 'error',
-                            'model_info': {},
-                            'source_types': []
-                        }
+        print(f"[SUCCESS] Generated RSS feed with {len(videos)} videos (Rust-powered)")
+        return Response(content=rss_xml, media_type="application/xml")
 
-            print(f"[SUCCESS] Added full AI transcription to RSS videos")
+    except Exception as e:
+        print(f"[ERROR] Rust RSS generation failed: {e}")
 
-        except Exception as transcription_error:
-            print(f"[WARNING] RSS transcription failed: transcription unavailable")
-
-    # Generate RSS XML
-    rss_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+        # Fallback to manual XML generation
+        rss_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
     <channel>
         <title>AI智能内容摘要 - {platform.title()} 精选视频</title>
-        <description>基于人工智能技术的中文视频平台内容聚合与智能分析 - 默认包含AI智能摘要</description>
+        <description>基于人工智能技术的中文视频平台内容聚合与智能分析 - 备用模式</description>
         <link>http://localhost:3000</link>
         <lastBuildDate>{datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')}</lastBuildDate>
-        <generator>AI Video RSS Aggregator v1.0</generator>
-'''
-
-    for video in videos:
-        # Handle real data structure safely
-        upload_date = video.get('upload_date', datetime.now().strftime('%Y-%m-%d'))
-        try:
-            if 'T' in upload_date:  # ISO format
-                pub_date = datetime.fromisoformat(upload_date.replace('Z', '+00:00')).strftime('%a, %d %b %Y %H:%M:%S %z')
-            else:
-                pub_date = datetime.strptime(upload_date, '%Y-%m-%d').strftime('%a, %d %b %Y %H:%M:%S %z')
-        except:
-            pub_date = datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')
-
-        description = video.get('description') or ''
-        title = video.get('title') or 'No Title'
-        author = video.get('author') or 'Unknown'
-        url = video.get('url') or ''
-        view_count = video.get('view_count') or 0
-        like_count = video.get('like_count') or 0
-        duration = video.get('duration') or 0
-        tags = video.get('tags') or []
-
-        # Parse duration - could be string like "58:30" or integer seconds
-        duration_minutes = 0
-        duration_seconds = 0
-        if isinstance(duration, str) and ':' in duration:
-            try:
-                parts = duration.split(':')
-                if len(parts) == 2:
-                    duration_minutes = int(parts[0])
-                    duration_seconds = int(parts[1])
-                elif len(parts) == 3:
-                    duration_minutes = int(parts[0]) * 60 + int(parts[1])
-                    duration_seconds = int(parts[2])
-            except ValueError:
-                duration_minutes = 0
-                duration_seconds = 0
-        elif isinstance(duration, int):
-            duration_minutes = duration // 60
-            duration_seconds = duration % 60
-
-        # Generate AI summary if enabled
-        ai_summary = ""
-        if summary:
-            if 'ai_summary' in video:
-                ai_summary = video['ai_summary']
-            else:
-                # Generate content-rich summary using the existing pipeline
-                ai_summary = await generate_content_summary(video)
-
-            if ai_summary:
-                description += f"\n\n🤖 AI智能摘要：{ai_summary}"
-
-        rss_xml += f'''
-        <item>
-            <title><![CDATA[{title}]]></title>
-            <link>{url}</link>
-            <description><![CDATA[{description}]]></description>
-            <author>{author}</author>
-            <pubDate>{pub_date}</pubDate>
-            <guid>{url}</guid>
-            <content:encoded><![CDATA[
-                <p><strong>👤 作者：</strong>{author}</p>
-                <p><strong>👁️ 观看：</strong>{view_count:,} | <strong>👍 点赞：</strong>{like_count:,}</p>
-                <p><strong>⏱️ 时长：</strong>{duration_minutes}分{duration_seconds}秒</p>
-                <p><strong>🏷️ 标签：</strong>{', '.join(tags) if tags else 'None'}</p>
-                <p><strong>📝 简介：</strong>{description}</p>
-                {f"<p><strong>🤖 AI智能摘要：</strong>{ai_summary}</p>" if ai_summary else ""}{_generate_transcription_content(video) if 'full_transcription' in video else ""}
-                <p><strong>[SOURCE] 数据来源：</strong>Real Data Only - No Generated Content</p>
-            ]]></content:encoded>
-        </item>'''
-
-    rss_xml += '''
+        <generator>Video RSS Aggregator Fallback v1.0</generator>
     </channel>
 </rss>'''
 
-    return Response(content=rss_xml, media_type="application/xml")
+        return Response(content=rss_xml, media_type="application/xml")
 
 # Import Response for RSS endpoint
 from fastapi.responses import Response
@@ -590,70 +546,33 @@ def _generate_transcription_content(video: Dict[str, Any]) -> str:
     return "\n                ".join(content_parts)
 
 async def generate_content_summary(video: Dict[str, Any]) -> str:
-    """Generate content-rich summary by analyzing the actual video using ChineseContentAnalyzer"""
+    """Generate content-rich summary using Rust-powered ContentAnalyzer"""
     try:
-        from chinese_content_analyzer import ChineseContentAnalyzer
+        analyzer = ContentAnalyzer()
 
-        video_url = video.get('url', '')
-        title = video.get('title', '').strip()
-        description = video.get('description', '').strip()
-        tags = video.get('tags', [])
-        duration = video.get('duration', '')
-        view_count = video.get('view_count', 0)
-        author = video.get('author', '').strip()
+        # Use Rust-powered content analysis for high performance
+        summary_result = await analyzer.analyze_video(video)
 
-        # If we have a URL, try to analyze the actual video content
-        if video_url and any(platform in video_url for platform in ['bilibili.com', 'douyin.com', 'kuaishou.com']):
-            async with ChineseContentAnalyzer() as analyzer:
-                if 'bilibili.com' in video_url:
-                    analysis = await analyzer.analyze_bilibili_video(video_url)
-                elif 'douyin.com' in video_url:
-                    analysis = await analyzer.analyze_douyin_video(video_url)
-                elif 'kuaishou.com' in video_url:
-                    analysis = await analyzer.analyze_kuaishou_video(video_url)
-                else:
-                    analysis = {}
+        if summary_result and 'ai_summary' in summary_result:
+            return summary_result['ai_summary']
+        elif summary_result and 'keywords' in summary_result:
+            # Build summary from keywords and sentiment
+            keywords = summary_result.get('keywords', [])[:5]
+            content_type = summary_result.get('content_type', 'Entertainment')
 
-                # Extract key information from analysis
-                if analysis and 'error' not in analysis:
-                    summary_parts = []
+            summary_parts = []
+            summary_parts.append(f"📦 内容类型：{content_type}")
 
-                    # Add core content summary
-                    if analysis.get('title'):
-                        summary_parts.append(f"📌 核心内容：{analysis['title']}")
+            if keywords:
+                summary_parts.append(f"🏷️ 关键词：{', '.join(keywords)}")
 
-                    # Add subtitle/transcript summary if available
-                    if analysis.get('subtitle_analysis'):
-                        subtitle_info = analysis['subtitle_analysis']
-                        if subtitle_info.get('subtitle_count', 0) > 0:
-                            summary_parts.append(f"💬 包含{subtitle_info['subtitle_count']}行字幕内容")
-                            if subtitle_info.get('content_preview'):
-                                preview = subtitle_info['content_preview'][:2]  # First 2 subtitle lines
-                                preview_text = ' | '.join([item.get('content', '') for item in preview if item.get('content')])
-                                if preview_text:
-                                    summary_parts.append(f"🎯 关键内容：{preview_text}")
+            return ' | '.join(summary_parts)
 
-                    # Add engagement metrics
-                    if analysis.get('view_count') or analysis.get('like_count'):
-                        views = analysis.get('view_count', view_count)
-                        likes = analysis.get('like_count', 0)
-                        if views:
-                            summary_parts.append(f"[STATS] 播放{views:,}次，互动良好")
-
-                    # Add hashtags/topics if available
-                    if analysis.get('hashtags') or tags:
-                        topics = analysis.get('hashtags', tags)[:3]  # Top 3 topics
-                        if topics:
-                            summary_parts.append(f"🏷️ 主要话题：{', '.join(topics)}")
-
-                    if summary_parts:
-                        return ' | '.join(summary_parts)
-
-        # Fallback: Generate summary from available metadata
+        # Fallback to metadata-based summary
         return generate_metadata_summary(video)
 
     except Exception as e:
-        print(f"Content analysis error: {e}")
+        print(f"Rust content analysis error: {e}")
         return generate_metadata_summary(video)
 
 def generate_metadata_summary(video: Dict[str, Any]) -> str:

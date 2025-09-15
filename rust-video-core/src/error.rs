@@ -1,40 +1,43 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum VideoProcessingError {
-    #[error("GPU backend error: {0}")]
-    GpuBackendError(String),
+pub enum VideoRssError {
+    #[error("HTTP request failed: {0}")]
+    Http(#[from] reqwest::Error),
 
-    #[error("Video decoding error: {0}")]
-    VideoDecodingError(String),
+    #[error("JSON parsing failed: {0}")]
+    Json(#[from] serde_json::Error),
 
-    #[error("Audio processing error: {0}")]
-    AudioProcessingError(String),
+    #[error("RSS generation failed: {0}")]
+    Rss(#[from] rss::Error),
 
-    #[error("Transcription error: {0}")]
-    TranscriptionError(String),
+    #[error("URL parsing failed: {0}")]
+    Url(#[from] url::ParseError),
+
+    #[error("Regex error: {0}")]
+    Regex(#[from] regex::Error),
 
     #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
 
-    #[error("FFmpeg error: {0}")]
-    FfmpegError(#[from] ffmpeg_next::Error),
+    #[error("Video not found: {0}")]
+    VideoNotFound(String),
 
-    #[error("Database error: {0}")]
-    DatabaseError(#[from] sqlx::Error),
+    #[error("Invalid credentials")]
+    InvalidCredentials,
 
-    #[error("Redis error: {0}")]
-    RedisError(#[from] redis::RedisError),
+    #[error("Rate limit exceeded")]
+    RateLimit,
 
-    #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
+    #[error("Timeout occurred")]
+    Timeout,
+
+    #[error("Parse error: {0}")]
+    Parse(String),
+
+    #[error("Content analysis failed: {0}")]
+    ContentAnalysis(String),
 
     #[error("Unknown error: {0}")]
     Unknown(String),
-}
-
-impl From<anyhow::Error> for VideoProcessingError {
-    fn from(err: anyhow::Error) -> Self {
-        VideoProcessingError::Unknown(err.to_string())
-    }
 }
