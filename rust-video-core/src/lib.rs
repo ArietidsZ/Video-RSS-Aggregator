@@ -1,24 +1,28 @@
 /*!
 # Video RSS Core
 
-High-performance Rust library for video RSS aggregation with AI transcription.
+Rust library for video RSS aggregation with AI transcription.
 
 ## Features
 
-- Fast RSS feed generation
+- RSS feed generation
 - Multi-platform video content fetching (Bilibili, Douyin, Kuaishou)
 - Concurrent video processing
-- Python bindings for seamless integration
-- Memory-efficient content analysis
+- Python bindings
+- Content analysis
 */
 
 pub mod bilibili;
+pub mod cache;
 pub mod content;
+pub mod database;
 pub mod error;
 pub mod extractor;
 pub mod monitor;
+pub mod resilience;
 pub mod rss;
 pub mod server;
+pub mod transcription;
 pub mod types;
 pub mod utils;
 
