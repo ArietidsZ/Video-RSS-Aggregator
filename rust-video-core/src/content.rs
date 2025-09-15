@@ -89,8 +89,9 @@ impl ContentAnalyzer {
         let response = self.client.get(url).send().await?;
 
         if !response.status().is_success() {
-            return Err(crate::error::VideoRssError::Http(reqwest::Error::from(
-                reqwest::ErrorKind::Request,
+            return Err(crate::error::VideoRssError::Parse(format!(
+                "Failed to fetch page: status {}",
+                response.status()
             )));
         }
 
@@ -130,7 +131,7 @@ impl ContentAnalyzer {
         // Add engagement metrics
         if video.view_count > 0 {
             summary_parts.push(format!(
-                "[STATS] 播放{:,}次，互动良好",
+                "[STATS] 播放{}次，互动良好",
                 video.view_count
             ));
         }
@@ -173,9 +174,9 @@ impl ContentAnalyzer {
         // Duration and engagement
         if let Some(duration) = video.duration {
             let minutes = duration / 60;
-            summary_parts.push(format!("⏱️ 时长{}分钟，已有{:,}人观看", minutes, video.view_count));
+            summary_parts.push(format!("⏱️ 时长{}分钟，已有{}人观看", minutes, video.view_count));
         } else if video.view_count > 0 {
-            summary_parts.push(format!("[STATS] 已有{:,}人观看", video.view_count));
+            summary_parts.push(format!("[STATS] 已有{}人观看", video.view_count));
         }
 
         // Description summary

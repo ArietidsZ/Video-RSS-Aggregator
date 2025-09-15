@@ -38,6 +38,9 @@ pub enum VideoRssError {
     #[error("Content analysis failed: {0}")]
     ContentAnalysis(String),
 
+    #[error("Configuration error: {0}")]
+    Config(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
