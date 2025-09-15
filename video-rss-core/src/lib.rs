@@ -12,22 +12,28 @@ Rust library for video RSS aggregation with AI transcription.
 - Content analysis
 */
 
+pub mod api;
 pub mod bilibili;
 pub mod cache;
 pub mod content;
 pub mod database;
+pub mod embeddings;
 pub mod error;
 pub mod extractor;
+pub mod fast_io;
 pub mod monitor;
+pub mod monitoring;
+pub mod moonshine;
+pub mod realtime;
 pub mod resilience;
 pub mod rss;
 pub mod server;
-pub mod transcription;
+pub mod summarizer;
+pub mod tiered_cache;
 pub mod types;
 pub mod utils;
-
-#[cfg(feature = "python")]
-pub mod python;
+pub mod vector_db;
+pub mod whisper_candle;
 
 use error::VideoRssError;
 use types::*;
