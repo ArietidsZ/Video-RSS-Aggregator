@@ -39,12 +39,12 @@ pub trait DataExtractor: Send + Sync {
     fn platform(&self) -> Platform;
 }
 
-pub struct RealDataExtractor {
+pub struct VideoExtractor {
     client: Client,
     extractors: Vec<Box<dyn DataExtractor>>,
 }
 
-impl RealDataExtractor {
+impl VideoExtractor {
     pub fn new() -> Result<Self> {
         dotenv::dotenv().ok();
 

@@ -60,7 +60,7 @@ pub struct TranscriptionSegment {
     pub confidence: f32,
 }
 
-pub struct NativeTranscriber {
+pub struct Transcriber {
     session: Arc<Session>,
     config: TranscriptionConfig,
     semaphore: Arc<Semaphore>,
@@ -68,9 +68,9 @@ pub struct NativeTranscriber {
     environment: Arc<Environment>,
 }
 
-impl NativeTranscriber {
+impl Transcriber {
     pub async fn new(config: TranscriptionConfig) -> Result<Self> {
-        info!("Initializing native transcriber with ONNX Runtime");
+        info!("Initializing transcriber with ONNX Runtime");
 
         let environment = Arc::new(
             Environment::builder()
@@ -121,7 +121,7 @@ impl NativeTranscriber {
             None
         };
 
-        info!("Native transcriber initialized successfully");
+        info!("Transcriber initialized successfully");
 
         Ok(Self {
             session,

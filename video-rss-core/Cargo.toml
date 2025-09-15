@@ -80,7 +80,7 @@ sysinfo = "0.30"
 seahash = "4.1"
 
 # ONNX Runtime for native speech recognition
-ort = { version = "2.0", features = ["ndarray", "load-dynamic"] }
+ort = { version = "2.0.0-rc.10", features = ["ndarray", "load-dynamic"] }
 ndarray = "0.15"
 
 # Audio processing
@@ -95,18 +95,18 @@ pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"], optional = true
 sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "postgres", "chrono", "uuid", "json"], optional = true }
 
 # Redis for caching
-redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "ahash"] }
-bb8 = "0.8"
-bb8-redis = "0.15"
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "ahash"], optional = true }
+bb8 = { version = "0.8", optional = true }
+bb8-redis = { version = "0.15", optional = true }
 
 # Circuit breaker and retry logic
 tower-retry = "0.3"
 backoff = { version = "0.4", features = ["tokio"] }
 
 # Performance monitoring
-prometheus = { version = "0.13", features = ["process"] }
-metrics = "0.21"
-metrics-exporter-prometheus = "0.13"
+prometheus = { version = "0.13", features = ["process"], optional = true }
+metrics = { version = "0.21", optional = true }
+metrics-exporter-prometheus = { version = "0.13", optional = true }
 
 # Semaphore for rate limiting
 arc-swap = "1.7"
