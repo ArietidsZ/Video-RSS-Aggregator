@@ -116,8 +116,8 @@ github_token.txt
 credentials.json
 
 # Rust
-rust-video-core/target/
-rust-video-core/Cargo.lock
+video-rss-core/target/
+video-rss-core/Cargo.lock
 *.rlib
 *.rmeta
 

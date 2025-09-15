@@ -37,5 +37,5 @@ pub type Result<T> = std::result::Result<T, VideoRssError>;
 // Re-export main types for convenience
 pub use bilibili::BilibiliClient;
 pub use content::ContentAnalyzer;
-pub use extractor::RealDataExtractor;
+pub use extractor::VideoExtractor;
 pub use rss::RssGenerator;

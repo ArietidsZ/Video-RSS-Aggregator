@@ -6,7 +6,7 @@ Native Rust video RSS aggregator for Chinese platforms (Bilibili, Douyin, Kuaish
 
 ### Backend (Rust)
 ```bash
-cd rust-video-core
+cd video-rss-core
 cargo run --bin server
 ```
 
@@ -41,7 +41,7 @@ Access:
 ## 📁 Project Structure
 
 ```
-├── rust-video-core/           # Rust backend
+├── video-rss-core/            # Rust backend
 │   ├── src/
 │   │   ├── server.rs          # Axum web server
 │   │   ├── transcription.rs   # ONNX-based transcription
@@ -96,7 +96,7 @@ Access:
 
 ### Backend Development
 ```bash
-cd rust-video-core
+cd video-rss-core
 
 # Install dependencies
 cargo build
@@ -130,7 +130,7 @@ npm run type-check
 
 ### Database Setup
 ```bash
-cd rust-video-core
+cd video-rss-core
 
 # Run migrations
 cargo run --bin migrate
@@ -192,7 +192,7 @@ curl "http://localhost:8080/health"
 ### Production Build
 ```bash
 # Backend
-cd rust-video-core
+cd video-rss-core
 cargo build --release
 
 # Frontend
@@ -222,7 +222,7 @@ docker-compose up
 
 ```bash
 # Backend tests
-cd rust-video-core
+cd video-rss-core
 cargo test
 
 # Performance benchmarks

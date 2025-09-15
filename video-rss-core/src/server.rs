@@ -1,7 +1,7 @@
 use crate::{
     cache::{CacheManager, RedisCache, MemoryCache, cache_key_for_platform, cache_key_for_rss},
     error::VideoRssError,
-    extractor::{ExtractedVideo, RealDataExtractor},
+    extractor::{ExtractedVideo, VideoExtractor},
     rss::RssGenerator,
     types::*,
     Result,
@@ -40,7 +40,7 @@ type AppRateLimiter = DefaultKeyedRateLimiter<SocketAddr>;
 
 #[derive(Clone)]
 pub struct AppState {
-    extractor: Arc<RealDataExtractor>,
+    extractor: Arc<VideoExtractor>,
     cache_manager: Arc<CacheManager>,
     config: ServerConfig,
     rate_limiter: Arc<AppRateLimiter>,
@@ -110,7 +110,7 @@ pub struct VideoRssServer {
 
 impl VideoRssServer {
     pub async fn new(config: ServerConfig) -> Result<Self> {
-        let extractor = Arc::new(RealDataExtractor::new()?);
+        let extractor = Arc::new(VideoExtractor::new()?);
 
         // Initialize cache
         let cache_manager = if let Some(redis_url) = &config.redis_url {
