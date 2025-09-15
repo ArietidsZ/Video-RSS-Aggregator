@@ -79,8 +79,9 @@ impl BilibiliClient {
             .await?;
 
         if !response.status().is_success() {
-            return Err(VideoRssError::Http(reqwest::Error::from(
-                reqwest::ErrorKind::Request,
+            return Err(VideoRssError::Parse(format!(
+                "Failed to fetch Bilibili API: status {}",
+                response.status()
             )));
         }
 

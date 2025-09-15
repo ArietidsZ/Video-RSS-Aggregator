@@ -15,7 +15,10 @@ High-performance Rust library for video RSS aggregation with AI transcription.
 pub mod bilibili;
 pub mod content;
 pub mod error;
+pub mod extractor;
+pub mod monitor;
 pub mod rss;
+pub mod server;
 pub mod types;
 pub mod utils;
 
@@ -30,4 +33,5 @@ pub type Result<T> = std::result::Result<T, VideoRssError>;
 // Re-export main types for convenience
 pub use bilibili::BilibiliClient;
 pub use content::ContentAnalyzer;
+pub use extractor::RealDataExtractor;
 pub use rss::RssGenerator;

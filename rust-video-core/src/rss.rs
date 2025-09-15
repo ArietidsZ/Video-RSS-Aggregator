@@ -80,8 +80,8 @@ impl RssGenerator {
         // Basic video info
         parts.push(format!("<p><strong>👤 作者：</strong>{}</p>", sanitize_xml(&video.author)));
         parts.push(format!(
-            "<p><strong>👁️ 观看：</strong>{:,} | <strong>👍 点赞：</strong>{:,}</p>",
-            video.view_count, video.like_count
+            "<p><strong>👁️ 观看：</strong>{} | <strong>👍 点赞：</strong>{}</p>",
+            format_number(video.view_count), format_number(video.like_count)
         ));
 
         if let Some(duration) = video.duration {
