@@ -129,8 +129,12 @@ go-api-server/go.sum
 *.so
 *.dylib
 
-# Frontend additional
-frontend/.env
-frontend/package-lock.json
-frontend/.cache/
-frontend/dist/
+# Next.js Frontend
+video-rss-frontend/.next/
+video-rss-frontend/out/
+video-rss-frontend/build/
+video-rss-frontend/.env.local
+video-rss-frontend/package-lock.json
+
+# Rust target directory
+target/

@@ -3,7 +3,7 @@ name = "video-rss-core"
 version = "0.1.0"
 edition = "2021"
 authors = ["ArietidsZ <zhongzhibozzb@gmail.com>"]
-description = "High-performance video RSS aggregator with AI transcription"
+description = "Video RSS aggregator with AI transcription"
 license = "Apache-2.0"
 
 [lib]
@@ -20,17 +20,17 @@ path = "src/bin/monitor.rs"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.35", features = ["rt-multi-thread", "time", "fs", "macros", "net", "sync", "signal"] }
 async-trait = "0.1"
 futures = "0.3"
 
-# HTTP client
-reqwest = { version = "0.11", features = ["json", "cookies", "stream"] }
+# HTTP client with connection pooling
+reqwest = { version = "0.11", features = ["json", "cookies", "stream", "gzip", "brotli", "deflate", "trust-dns"] }
 
-# Web framework for backend
-axum = { version = "0.7", features = ["ws", "multipart"] }
+# Web framework - Axum with performance features
+axum = { version = "0.7", features = ["ws", "multipart", "macros"] }
 tower = { version = "0.4", features = ["full"] }
-tower-http = { version = "0.5", features = ["cors", "fs", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "fs", "trace", "compression-gzip", "compression-br", "timeout", "limit"] }
 
 # RSS generation
 rss = "2.0"
@@ -76,16 +76,48 @@ dotenv = "0.15"
 # Process management
 sysinfo = "0.30"
 
+# Hashing for ETags
+seahash = "4.1"
+
+# ONNX Runtime for native speech recognition
+ort = { version = "2.0", features = ["ndarray", "load-dynamic"] }
+ndarray = "0.15"
+
+# Audio processing
+hound = "3.5"
+symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg"] }
+
 # Python bindings
 pyo3 = { version = "0.20", features = ["extension-module"], optional = true }
 pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"], optional = true }
 
-# Database (optional for caching)
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite"], optional = true }
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "postgres", "chrono", "uuid", "json"], optional = true }
+
+# Redis for caching
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "ahash"] }
+bb8 = "0.8"
+bb8-redis = "0.15"
+
+# Circuit breaker and retry logic
+tower-retry = "0.3"
+backoff = { version = "0.4", features = ["tokio"] }
+
+# Performance monitoring
+prometheus = { version = "0.13", features = ["process"] }
+metrics = "0.21"
+metrics-exporter-prometheus = "0.13"
+
+# Semaphore for rate limiting
+arc-swap = "1.7"
+governor = "0.6"
+nonzero_ext = "0.3"
 
 [features]
-default = ["database"]
+default = ["database", "redis", "metrics"]
 database = ["sqlx"]
+redis = ["dep:redis", "bb8", "bb8-redis"]
+metrics = ["prometheus", "dep:metrics", "metrics-exporter-prometheus"]
 python = ["pyo3", "pyo3-asyncio"]
 
 [profile.release]
