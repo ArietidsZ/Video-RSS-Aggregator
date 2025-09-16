@@ -62,13 +62,13 @@ pub struct ServerMetrics {
 impl ServerMetrics {
     pub fn new() -> Self {
         Self {
-            requests_total: counter!("http_requests_total"),
-            request_duration: histogram!("http_request_duration_seconds"),
-            cache_hits: counter!("cache_hits_total"),
-            cache_misses: counter!("cache_misses_total"),
-            active_connections: gauge!("active_connections"),
-            rate_limited_requests: counter!("rate_limited_requests_total"),
-            video_fetch_duration: histogram!("video_fetch_duration_seconds"),
+            requests_total: metrics::counter!("http_requests_total"),
+            request_duration: metrics::histogram!("http_request_duration_seconds"),
+            cache_hits: metrics::counter!("cache_hits_total"),
+            cache_misses: metrics::counter!("cache_misses_total"),
+            active_connections: metrics::gauge!("active_connections"),
+            rate_limited_requests: metrics::counter!("rate_limited_requests_total"),
+            video_fetch_duration: metrics::histogram!("video_fetch_duration_seconds"),
         }
     }
 }

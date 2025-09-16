@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["ArietidsZ <zhongzhibozzb@gmail.com>"]
 description = "Video RSS aggregator with AI transcription"
 license = "Apache-2.0"
+resolver = "2"
 
 [lib]
 name = "video_rss_core"
@@ -48,7 +49,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 bincode = "1.3"
 rmp-serde = "1.3"
-flatbuffers = "24.3"
+flatbuffers = "25.2"
 
 # Error handling
 anyhow = "1.0"
@@ -65,7 +66,7 @@ parking_lot = "0.12"
 dashmap = "6.1"
 memmap2 = "0.9"
 zerocopy = "0.8"
-bytemuck = "1.19"
+bytemuck = "1.23"
 packed_simd_2 = { version = "0.3", optional = true }
 wide = { version = "0.7", optional = true }
 
@@ -93,36 +94,42 @@ seahash = "4.1"
 blake3 = "1.5"
 ahash = "0.8"
 
-# Cutting-edge ML frameworks
-candle-core = { version = "0.7", features = ["cuda", "metal"] }
-candle-nn = "0.7"
-candle-transformers = "0.7"
-candle-onnx = "0.7"
-burn = { version = "0.15", features = ["wgpu", "fusion", "candle"] }
-burn-wgpu = "0.15"
-hf-hub = { version = "0.3", features = ["tokio"] }
-tokenizers = { version = "0.20", features = ["http"] }
+# ML frameworks - latest versions (2025)
+candle-core = { version = "0.9.1", features = ["metal"] }
+candle-nn = "0.9.1"
+candle-transformers = "0.9.1"
+candle-onnx = "0.9.1"
+burn = { version = "0.18", features = ["wgpu", "fusion", "candle", "std", "train", "dataset", "metrics"], default-features = false }
+burn-wgpu = "0.18"
+hf-hub = { version = "0.4", features = ["tokio"] }
+tokenizers = { version = "0.21", features = ["http"] }
 
-# Audio processing
+# Audio processing - latest versions
 hound = "3.5"
 symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "aac"] }
 rubato = "0.15"
-cpal = "0.15"
+cpal = "0.16"
 dasp = "0.11"
 
 # Array operations
 ndarray = "0.15"
 
+# Missing dependencies for compilation
+tokio-stream = "0.1"
+hmac = "0.12"
+sha2 = "0.10"
+bytes = "1.8"
+opentelemetry_sdk = "0.30"
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "postgres", "chrono", "uuid", "json"], optional = true }
+sqlx = { version = "0.8.2", features = ["runtime-tokio-native-tls", "sqlite", "postgres", "chrono", "uuid", "json", "migrate"], optional = true }
 
 # Caching layers
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "ahash"], optional = true }
 bb8 = { version = "0.8", optional = true }
 bb8-redis = { version = "0.15", optional = true }
 moka = { version = "0.12", features = ["future"] }
-rocksdb = { version = "0.22", optional = true }
+rocksdb = { version = "0.24", optional = true }
 sled = { version = "0.34", optional = true }
 
 # Circuit breaker and retry logic
@@ -133,26 +140,29 @@ backoff = { version = "0.4", features = ["tokio"] }
 prometheus = { version = "0.13", features = ["process"], optional = true }
 metrics = { version = "0.21", optional = true }
 metrics-exporter-prometheus = { version = "0.13", optional = true }
-opentelemetry = { version = "0.26", features = ["trace", "metrics"], optional = true }
-opentelemetry-otlp = { version = "0.26", optional = true }
+opentelemetry = { version = "0.30", features = ["trace", "metrics"], optional = true }
+opentelemetry-otlp = { version = "0.30", optional = true }
 
 # Semaphore for rate limiting
 arc-swap = "1.7"
 governor = "0.6"
 nonzero_ext = "0.3"
 
-# Vector database and search
-lancedb = { version = "0.13", optional = true }
+# Vector database and search - latest versions (2025)
+lancedb = { version = "0.21.3", optional = true }
 tantivy = { version = "0.22", optional = true }
-arrow = { version = "54", features = ["prettyprint", "json"], optional = true }
-lance = { version = "0.19", optional = true }
+arrow = { version = "55", features = ["prettyprint", "json"], optional = true }
+lance = { version = "0.36", optional = true }
 
-# Next-gen dependencies
-nalgebra = "0.33"  # For quantum-inspired algorithms
-automerge = "0.5"  # CRDT sync
-wasmtime = { version = "25", features = ["component-model", "async"] }
-wasmtime-wasi = "25"
-rand = "0.8"
+# Next-gen dependencies - latest versions
+nalgebra = "0.34"  # For quantum-inspired algorithms
+automerge = "0.5"  # CRDT sync - latest stable version
+wasmtime = { version = "36", features = ["component-model", "async"] }
+wasmtime-wasi = "36"
+rand = "0.9"
+
+# Force compatible SQLite version that works with both burn and sqlx
+libsqlite3-sys = "=0.30.1"
 
 [features]
 default = ["database", "redis", "metrics", "vector-db", "simd"]
@@ -160,7 +170,7 @@ database = ["sqlx"]
 redis = ["dep:redis", "bb8", "bb8-redis"]
 metrics = ["prometheus", "dep:metrics", "metrics-exporter-prometheus", "opentelemetry", "opentelemetry-otlp"]
 vector-db = ["lancedb", "tantivy", "arrow", "lance"]
-simd = ["packed_simd_2", "wide"]
+simd = ["wide"]
 io-uring = ["tokio-uring"]
 persistent-cache = ["rocksdb", "sled"]
 
@@ -168,3 +178,4 @@ persistent-cache = ["rocksdb", "sled"]
 lto = true
 codegen-units = 1
 opt-level = 3
+

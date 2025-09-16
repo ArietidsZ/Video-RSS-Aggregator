@@ -1,7 +1,7 @@
 use crate::{error::VideoRssError, Result};
-use wasmtime::*;
+use wasmtime::{Engine, Config, Store, Caller, Module, Instance as CoreInstance};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder};
-use wasmtime::component::*;
+use wasmtime::component::{Component, Linker, Instance, TypedFunc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;

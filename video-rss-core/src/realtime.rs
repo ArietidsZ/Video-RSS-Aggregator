@@ -119,7 +119,7 @@ struct Connection {
 }
 
 #[derive(Debug, Clone, Default)]
-struct ConnectionFilters {
+pub struct ConnectionFilters {
     platforms: Option<Vec<String>>,
     authors: Option<Vec<String>>,
     event_types: Option<Vec<String>>,
