@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, error, info, warn};
-use zerocopy::{AsBytes, FromBytes, FromZeroes};
+use zerocopy::{IntoBytes, FromBytes, FromZeros};
 
 #[cfg(feature = "io-uring")]
 use tokio_uring::fs::File as UringFile;
@@ -37,7 +37,7 @@ impl Default for FastIOConfig {
 }
 
 /// Zero-copy buffer for efficient data transfer
-#[derive(Debug, Clone, AsBytes, FromBytes, FromZeroes)]
+#[derive(Debug, Clone, IntoBytes, FromBytes, FromZeros)]
 #[repr(C)]
 pub struct ZeroCopyBuffer {
     pub data: [u8; 4096],

@@ -2,7 +2,7 @@ use crate::{error::VideoRssError, Result};
 use arrow::array::{Float32Array, StringArray, Int64Array, StructArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use lancedb::{Connection, Table, Query};
+use lancedb::{Connection, Table};
 use lance::dataset::{Dataset, WriteParams};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
