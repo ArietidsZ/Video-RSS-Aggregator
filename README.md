@@ -1,299 +1,123 @@
-# Video RSS Aggregator - Next-Gen Edition
+# Video RSS Aggregator
 
-State-of-the-art Rust video RSS aggregator featuring quantum-inspired algorithms, ultra-low latency transcription, and cutting-edge AI technologies. Supports Chinese platforms (Bilibili, Douyin, Kuaishou) with modern Next.js frontend.
+Video content aggregation and summarization system supporting YouTube, Bilibili (哔哩哔哩), TikTok, Douyin (抖音), and Kuaishou (快手).
 
-## 🚀 Quick Start
+## Prerequisites
 
-### Backend (Rust)
+- Docker & Docker Compose
+- NVIDIA GPU with CUDA 11.8+ (optional, for GPU acceleration)
+- 16GB+ RAM
+- Redis 7.0+
+- PostgreSQL 15+
+- Python 3.8+
+- Node.js 14+
+
+## Architecture
+
+Multi-language implementation optimized for different components:
+
+- **Rust** - RSS server, hardware detection, metadata extraction
+- **C++** - Audio processing, transcription engine
+- **Python** - ML models for content analysis and summarization
+- **Java** - Apache Flink stream processing
+
+## Installation
+
 ```bash
-cd video-rss-core
-cargo run --bin server
+# Clone repository
+git clone https://github.com/yourusername/video-rss-aggregator.git
+cd video-rss-aggregator
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your settings
+
+# Deploy with provided script
+./deploy.sh
+
+# Or deploy components manually:
+cd distributed-cache
+./init-cluster.sh
+
+cd ../model-serving
+./deploy.sh
+
+cd ../api-gateway
+cargo run --release
+
+cd ../rss-server
+cargo run --release
 ```
 
-### Frontend (Next.js)
+## Docker Deployment
+
 ```bash
-cd video-rss-frontend
-npm install
-npm run dev
+docker-compose -f distributed-cache/docker-compose.yml up -d
+docker-compose -f model-serving/docker-compose.triton.yml up -d
+docker-compose -f realtime-streaming/docker-compose.kafka.yml up -d
 ```
 
-Access:
-- **Frontend**: http://localhost:3000
-- **API**: http://localhost:8080
-- **RSS Feed**: http://localhost:8080/rss/generate
+## Kubernetes Deployment
 
-## 🏗️ Architecture
-
-### Backend (Rust)
-- **Server**: Axum web framework with rate limiting and compression
-- **Transcription**:
-  - CAIMAN-ASR with <0.3s latency using Squeezeformer architecture
-  - Moonshine (5-15x faster than Whisper)
-  - Whisper Candle with Distil-Whisper and Turbo models
-  - Native ONNX Runtime with sherpa-onnx models
-- **Search & Indexing**:
-  - Quantum-inspired Simulated Bifurcation for 10x faster optimization
-  - LanceDB embedded vector database
-  - Tantivy full-text search (2x faster than Lucene)
-- **Caching**:
-  - Three-tier cache (Memory/Moka, SSD/RocksDB, Disk)
-  - Redis with connection pooling
-  - ETag support for RSS feeds
-- **Sync & Collaboration**:
-  - CRDT-based sync with Automerge 3 for conflict-free editing
-  - P2P synchronization support
-- **Performance**:
-  - io_uring zero-copy I/O
-  - SIMD optimizations (AVX2, NEON, SVE2, RISC-V)
-  - Neural compression with LMCompress (10-20x ratios)
-  - WebAssembly Component Model for plugins
-- **Resilience**: Circuit breakers, retry logic, and comprehensive error handling
-- **Monitoring**: OpenTelemetry, Prometheus metrics, distributed tracing
-
-### Frontend (Next.js)
-- **Framework**: Next.js 15 with TypeScript and Tailwind CSS
-- **State Management**: React Query for efficient data fetching and caching
-- **UI Components**: Responsive design with real-time updates
-- **API Integration**: Axios client with automatic error handling and retries
-
-## 📁 Project Structure
-
-```
-├── video-rss-core/            # Rust backend
-│   ├── src/
-│   │   ├── server.rs          # Axum web server
-│   │   ├── caiman_asr.rs      # Ultra-low latency ASR
-│   │   ├── moonshine.rs       # Fast transcription engine
-│   │   ├── whisper_candle.rs  # Distil-Whisper models
-│   │   ├── quantum_search.rs  # Simulated Bifurcation
-│   │   ├── neural_compression.rs # LMCompress
-│   │   ├── crdt_sync.rs       # Automerge 3 sync
-│   │   ├── simd_optimizations.rs # Hardware acceleration
-│   │   ├── wasm_component.rs  # Plugin system
-│   │   ├── vector_db.rs       # LanceDB integration
-│   │   ├── tiered_cache.rs    # Three-tier caching
-│   │   ├── fast_io.rs         # Zero-copy I/O
-│   │   ├── database.rs        # SQLx database layer
-│   │   ├── resilience.rs      # Circuit breakers
-│   │   └── lib.rs             # Core library
-│   ├── migrations/            # Database migrations
-│   └── static/                # Static HTML dashboard
-├── video-rss-frontend/        # Next.js frontend
-│   ├── src/
-│   │   ├── app/               # Next.js app directory
-│   │   ├── components/        # React components
-│   │   ├── lib/               # API client & utilities
-│   │   └── types/             # TypeScript definitions
-│   └── package.json
-└── README.md
-```
-
-## 🎥 Features
-
-### Video Processing
-- Multi-platform data extraction (Bilibili, Douyin, Kuaishou)
-- Concurrent video processing with semaphore-based rate limiting
-- Smart content deduplication and caching
-- Quantum-inspired search algorithms for optimal video selection
-
-### AI Transcription (State-of-the-Art)
-- **CAIMAN-ASR**: Ultra-low latency (<0.3s) streaming transcription
-- **Moonshine**: 5-15x faster than Whisper with comparable accuracy
-- **Whisper Candle**: Distil-Whisper and Turbo models for efficiency
-- Native Rust ONNX Runtime integration
-- Chinese-English speech recognition with sherpa-onnx models
-- Voice Activity Detection (VAD) for better segmentation
-- Automatic audio format conversion and resampling
-
-### RSS Generation
-- Standards-compliant RSS 2.0 feeds
-- ETag-based caching with compression
-- Configurable feed options and metadata
-
-### Performance & Reliability
-- **Caching**: Three-tier system (Memory → SSD → Disk) with smart promotion
-- **I/O**: Zero-copy operations with io_uring and memory-mapped files
-- **SIMD**: Hardware-specific optimizations for all major architectures
-- **Compression**: Neural compression achieving 10-20x ratios
-- **Search**: Quantum-inspired algorithms 10x faster than classical methods
-- Circuit breakers for external API calls
-- Comprehensive metrics with OpenTelemetry
-- Load testing and performance benchmarks
-
-## 🛠️ Development Setup
-
-### Prerequisites
-- Rust 1.70+ with Cargo
-- Node.js 18+ with npm
-- Redis (optional, falls back to memory cache)
-- SQLite (included)
-
-### Backend Development
 ```bash
-cd video-rss-core
-
-# Install dependencies
-cargo build
-
-# Run with hot reload
-cargo watch -x "run --bin server"
-
-# Run tests
-cargo test
-
-# Run benchmarks
-cargo bench
+kubectl apply -f model-serving/k8s/
 ```
 
-### Frontend Development
-```bash
-cd video-rss-frontend
+## API Access
 
-# Install dependencies
-npm install
+- GraphQL: http://localhost:8080/graphql
+- REST API: http://localhost:8080/api/v3/
+- WebSocket: ws://localhost:8080/ws
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000
 
-# Start development server
-npm run dev
+## API Usage
 
-# Build for production
-npm run build
+### Python SDK
+```python
+from video_rss_aggregator import Client
 
-# Type checking
-npm run type-check
+client = Client(api_key="your-api-key")
+summary = client.summarize_video(url="https://...")
 ```
 
-### Database Setup
-```bash
-cd video-rss-core
+### TypeScript SDK
+```typescript
+import { VideoRSSClient } from '@video-rss-aggregator/sdk';
 
-# Run migrations
-cargo run --bin migrate
-
-# Check database status
-sqlite3 database.db ".tables"
+const client = new VideoRSSClient({ apiKey: 'your-api-key' });
+const summary = await client.summarizeVideo({ url: 'https://...' });
 ```
 
-## 📊 Configuration
-
-### Environment Variables
+### REST API
 ```bash
-# Backend (.env)
-DATABASE_URL=sqlite:database.db
-REDIS_URL=redis://localhost:6379
-LOG_LEVEL=info
-SERVER_PORT=8080
-
-# Frontend (.env.local)
-NEXT_PUBLIC_API_URL=http://localhost:8080
-```
-
-### Platform Settings
-Configure rate limits, timeouts, and retry policies through the web interface or directly in the database.
-
-## 🔧 API Usage
-
-### Get Videos
-```bash
-# Get latest videos
-curl "http://localhost:8080/videos?platforms=bilibili&limit=10"
-
-# Search videos
-curl "http://localhost:8080/videos?search=technology&sort_by=view_count"
-```
-
-### Generate RSS
-```bash
-# Generate RSS feed
-curl -X POST "http://localhost:8080/rss/generate" \
+curl -X POST http://localhost:8080/api/v3/summarize \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"platforms": ["bilibili", "douyin"]}'
-
-# Get RSS with transcriptions
-curl "http://localhost:8080/rss/bilibili?include_transcription=true"
+  -d '{"url": "https://www.youtube.com/watch?v=..."}'
 ```
 
-### System Stats
-```bash
-# Get system metrics
-curl "http://localhost:8080/stats"
+## Components
 
-# Health check
-curl "http://localhost:8080/health"
-```
+- `hardware-detector/` - Hardware detection and configuration
+- `video-metadata-extractor/` - Platform API integration
+- `audio-processor/` - Audio extraction with optional GPU acceleration
+- `transcription-engine/` - Speech-to-text processing
+- `video-content-analyzer/` - Video content analysis
+- `summarization-engine/` - Text summarization models
+- `rss-server/` - RSS feed generation server
+- `distributed-cache/` - Redis cluster caching
+- `model-serving/` - Model deployment with Triton
+- `realtime-streaming/` - WebSocket/WebRTC streaming
+- `api-gateway/` - API routing and management
+- `security/` - Authentication and authorization
+- `content-filter/` - Content moderation
+- `performance-monitor/` - Metrics collection
 
-## 🚀 Deployment
+## License
 
-### Production Build
-```bash
-# Backend
-cd video-rss-core
-cargo build --release
+MIT License - See LICENSE file for details.
 
-# Frontend
-cd video-rss-frontend
-npm run build
-```
+## Disclaimer
 
-### Docker (Optional)
-```bash
-# Build containers
-docker build -t video-rss-backend rust-video-core/
-docker build -t video-rss-frontend video-rss-frontend/
-
-# Run with docker-compose
-docker-compose up
-```
-
-## 📈 Performance
-
-- **Transcription**:
-  - CAIMAN-ASR: 0.19 RTF (5.26x real-time) with <0.3s latency
-  - Moonshine: 5-15x faster than Whisper
-  - Whisper Candle: 2-3x faster with Distil models
-- **Search**: Quantum-inspired algorithms 10x faster than classical
-- **I/O**: Zero-copy operations with io_uring, 50% reduction in syscalls
-- **Compression**: 10-20x compression ratios with neural models
-- **Caching**: Sub-millisecond responses with three-tier system
-- **Concurrency**: Configurable semaphore limits (default: 1000 concurrent)
-- **Rate Limiting**: 100 requests/second with burst capacity
-- **Memory**: Efficient usage with SIMD and memory-mapped files
-
-## 🧪 Testing
-
-```bash
-# Backend tests
-cd video-rss-core
-cargo test
-
-# Performance benchmarks
-cargo bench
-
-# Load testing
-cargo test --test integration_tests
-
-# Frontend tests
-cd video-rss-frontend
-npm test
-```
-
-## 🎯 Monitoring
-
-### Metrics Dashboard
-- **System Resources**: CPU, memory, disk usage
-- **API Performance**: Request rates, response times, error rates
-- **Cache Efficiency**: Hit rates, eviction statistics
-- **Platform Status**: Availability and response times
-
-### Health Checks
-- Database connectivity
-- Redis availability
-- External platform status
-- Model loading status
-
-## 📝 License
-
-Apache License 2.0
-
-## ⚠️ Disclaimer
-
-Educational and research purposes only. Respect platform terms of service and applicable laws.
+Please ensure compliance with platform terms of service and copyright laws when using this system.

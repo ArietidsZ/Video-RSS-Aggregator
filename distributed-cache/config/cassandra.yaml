@@ -1,0 +1,167 @@
+# Apache Cassandra Configuration
+# Optimized for video metadata and transcription storage
+
+cluster_name: 'VideoRSSCluster'
+num_tokens: 256
+allocate_tokens_for_keyspace: video_rss
+
+# Directories
+data_file_directories:
+  - /var/lib/cassandra/data
+commitlog_directory: /var/lib/cassandra/commitlog
+saved_caches_directory: /var/lib/cassandra/saved_caches
+hints_directory: /var/lib/cassandra/hints
+
+# Seed Provider
+seed_provider:
+  - class_name: org.apache.cassandra.locator.SimpleSeedProvider
+    parameters:
+      - seeds: "cassandra-1,cassandra-2"
+
+# Network
+listen_address:
+broadcast_address:
+rpc_address: 0.0.0.0
+broadcast_rpc_address:
+
+# Ports
+storage_port: 7000
+ssl_storage_port: 7001
+native_transport_port: 9042
+start_native_transport: true
+
+# Performance Tuning
+concurrent_reads: 64
+concurrent_writes: 64
+concurrent_counter_writes: 32
+concurrent_materialized_view_writes: 32
+
+# Memory
+memtable_allocation_type: heap_buffers
+memtable_heap_space_in_mb: 2048
+memtable_offheap_space_in_mb: 2048
+memtable_cleanup_threshold: 0.11
+
+# Cache
+key_cache_size_in_mb: 100
+key_cache_save_period: 14400
+row_cache_size_in_mb: 0
+row_cache_save_period: 0
+counter_cache_size_in_mb: 50
+counter_cache_save_period: 7200
+
+# Commit Log
+commitlog_sync: periodic
+commitlog_sync_period_in_ms: 10000
+commitlog_segment_size_in_mb: 32
+commitlog_compression:
+  - class_name: LZ4Compressor
+
+# Compaction
+compaction_throughput_mb_per_sec: 64
+compaction_large_partition_warning_threshold_mb: 100
+
+# Compression
+sstable_compression: org.apache.cassandra.io.compress.LZ4Compressor
+
+# Timeouts
+read_request_timeout_in_ms: 5000
+range_request_timeout_in_ms: 10000
+write_request_timeout_in_ms: 2000
+counter_write_request_timeout_in_ms: 5000
+cas_contention_timeout_in_ms: 1000
+truncate_request_timeout_in_ms: 60000
+request_timeout_in_ms: 10000
+slow_query_log_timeout_in_ms: 500
+
+# Streaming
+stream_throughput_outbound_megabits_per_sec: 200
+inter_dc_stream_throughput_outbound_megabits_per_sec: 200
+
+# Security
+authenticator: PasswordAuthenticator
+authorizer: CassandraAuthorizer
+role_manager: CassandraRoleManager
+permissions_validity_in_ms: 2000
+permissions_cache_max_entries: 1000
+permissions_update_interval_in_ms: 2000
+
+# Snitch
+endpoint_snitch: GossipingPropertyFileSnitch
+dynamic_snitch_update_interval_in_ms: 100
+dynamic_snitch_reset_interval_in_ms: 600000
+dynamic_snitch_badness_threshold: 0.1
+
+# Request Scheduler
+request_scheduler: org.apache.cassandra.scheduler.NoScheduler
+
+# Index
+index_summary_capacity_in_mb:
+index_summary_resize_interval_in_minutes: 60
+
+# Encryption
+server_encryption_options:
+  internode_encryption: none
+  keystore: conf/.keystore
+  keystore_password: cassandra
+  truststore: conf/.truststore
+  truststore_password: cassandra
+
+client_encryption_options:
+  enabled: false
+  optional: false
+  keystore: conf/.keystore
+  keystore_password: cassandra
+
+# GC Settings
+gc_warn_threshold_in_ms: 1000
+
+# Phi Convict Threshold
+phi_convict_threshold: 8
+
+# Backup
+incremental_backups: false
+snapshot_before_compaction: false
+auto_snapshot: true
+
+# Metrics
+metrics_enabled: true
+
+# Audit Logging
+audit_logging_options:
+  enabled: false
+
+# Diagnostic Events
+diagnostic_events_enabled: false
+
+# Native Protocol
+native_transport_max_threads: 128
+native_transport_max_frame_size_in_mb: 256
+native_transport_frame_block_size_in_kb: 256
+native_transport_max_concurrent_connections: -1
+native_transport_max_concurrent_connections_per_ip: -1
+
+# Prepared Statements
+prepared_statements_cache_size_mb:
+thrift_prepared_statements_cache_size_mb:
+
+# Column Index
+column_index_size_in_kb: 64
+column_index_cache_size_in_kb: 2
+
+# Batch
+batch_size_warn_threshold_in_kb: 64
+batch_size_fail_threshold_in_kb: 640
+unlogged_batch_across_partitions_warn_threshold: 10
+
+# Tombstones
+tombstone_warn_threshold: 1000
+tombstone_failure_threshold: 100000
+
+# Coordinator
+enable_coordinator_batchlog: true
+
+# Materialized Views
+enable_materialized_views: true
+enable_sasi_indexes: true
+enable_drop_compact_storage: false

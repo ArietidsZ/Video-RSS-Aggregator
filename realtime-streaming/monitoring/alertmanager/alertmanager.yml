@@ -1,0 +1,280 @@
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@video-rss.com'
+  smtp_auth_username: '${EMAIL_USERNAME}'
+  smtp_auth_password: '${EMAIL_PASSWORD}'
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+# Route tree for alert routing
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: 'default-receiver'
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      routes:
+        # System down alerts
+        - match_re:
+            alertname: '.*SystemDown|.*Down'
+          receiver: 'system-down-alerts'
+          group_wait: 0s
+          repeat_interval: 5m
+
+        # SLI violations
+        - match:
+            component: sli-violation
+          receiver: 'sli-violation-alerts'
+          group_wait: 0s
+          repeat_interval: 30m
+
+    # Warning alerts - less urgent
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 2m
+      group_interval: 10m
+      repeat_interval: 6h
+
+    # Infrastructure alerts
+    - match:
+        component: system-resources
+      receiver: 'infrastructure-alerts'
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 4h
+
+    # GPU-specific alerts
+    - match:
+        component: gpu-resources
+      receiver: 'gpu-alerts'
+      group_wait: 30s
+      group_interval: 2m
+      repeat_interval: 2h
+
+    # Model serving alerts
+    - match:
+        component: model-serving
+      receiver: 'model-serving-alerts'
+      group_wait: 30s
+      group_interval: 2m
+      repeat_interval: 2h
+
+    # Circuit breaker alerts
+    - match:
+        component: circuit-breaker
+      receiver: 'circuit-breaker-alerts'
+      group_wait: 0s
+      repeat_interval: 15m
+
+    # Development/testing alerts (silenced during work hours)
+    - match:
+        environment: development
+      receiver: 'dev-alerts'
+      active_time_intervals:
+        - dev-work-hours
+
+# Receiver definitions
+receivers:
+  - name: 'default-receiver'
+    slack_configs:
+      - channel: '#video-rss-alerts'
+        title: 'Video RSS Alert'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'oncall@video-rss.com'
+        subject: '[CRITICAL] Video RSS Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Labels: {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+          Started: {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+          {{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+        headers:
+          Priority: 'high'
+    slack_configs:
+      - channel: '#critical-alerts'
+        color: 'danger'
+        title: 'CRITICAL ALERT: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          🚨 *{{ .Annotations.summary }}*
+          📝 {{ .Annotations.description }}
+          🏷️ Component: {{ .Labels.component }}
+          ⏰ Started: {{ .StartsAt.Format "15:04:05" }}
+          {{ if .Annotations.runbook_url }}📖 [Runbook]({{ .Annotations.runbook_url }}){{ end }}
+          {{ end }}
+        send_resolved: true
+    webhook_configs:
+      - url: 'http://webhook-alerts:9094/critical'
+        send_resolved: true
+
+  - name: 'system-down-alerts'
+    email_configs:
+      - to: 'sre-team@video-rss.com,oncall@video-rss.com'
+        subject: '[URGENT] System Down: {{ .GroupLabels.alertname }}'
+        body: |
+          URGENT: Critical system component is down!
+
+          {{ range .Alerts }}
+          Component: {{ .Labels.component }}
+          Instance: {{ .Labels.instance }}
+          Started: {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+          Description: {{ .Annotations.description }}
+          {{ if .Annotations.runbook_url }}
+          Immediate Action Required: {{ .Annotations.runbook_url }}
+          {{ end }}
+          {{ end }}
+    slack_configs:
+      - channel: '#incidents'
+        color: 'danger'
+        title: '🚨 SYSTEM DOWN: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          💥 *SYSTEM DOWN*: {{ .Labels.component }}
+          🖥️ Instance: {{ .Labels.instance }}
+          ⏰ Down since: {{ .StartsAt.Format "15:04:05" }}
+          📖 {{ if .Annotations.runbook_url }}[Emergency Runbook]({{ .Annotations.runbook_url }}){{ end }}
+          {{ end }}
+        actions:
+          - type: button
+            text: 'Acknowledge'
+            url: 'http://grafana:3000/alerting'
+          - type: button
+            text: 'View Dashboards'
+            url: 'http://grafana:3000/d/video-overview'
+
+  - name: 'sli-violation-alerts'
+    email_configs:
+      - to: 'product-team@video-rss.com'
+        subject: '[SLI VIOLATION] {{ .GroupLabels.sli }}'
+        body: |
+          SLI Violation Detected!
+
+          {{ range .Alerts }}
+          SLI: {{ .Labels.sli }}
+          Current Value: {{ .Annotations.description }}
+          Impact: Service Level Objective not being met
+          {{ end }}
+    slack_configs:
+      - channel: '#sli-violations'
+        color: 'warning'
+        title: '📊 SLI Violation: {{ .GroupLabels.sli }}'
+
+  - name: 'warning-alerts'
+    slack_configs:
+      - channel: '#video-rss-warnings'
+        color: 'warning'
+        title: '⚠️ Warning: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          {{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  - name: 'infrastructure-alerts'
+    email_configs:
+      - to: 'infra-team@video-rss.com'
+        subject: '[INFRA] {{ .GroupLabels.alertname }}'
+    slack_configs:
+      - channel: '#infrastructure'
+        title: '🏗️ Infrastructure Alert'
+
+  - name: 'gpu-alerts'
+    slack_configs:
+      - channel: '#gpu-monitoring'
+        color: 'warning'
+        title: '🎮 GPU Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          GPU Issue Detected
+          {{ .Annotations.description }}
+          GPU: {{ .Labels.gpu }}
+          {{ end }}
+
+  - name: 'model-serving-alerts'
+    slack_configs:
+      - channel: '#ml-ops'
+        title: '🤖 Model Serving Alert'
+
+  - name: 'circuit-breaker-alerts'
+    slack_configs:
+      - channel: '#circuit-breakers'
+        color: 'danger'
+        title: '🔌 Circuit Breaker: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          Circuit Breaker Status Change
+          Service: {{ .Labels.service }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  - name: 'dev-alerts'
+    slack_configs:
+      - channel: '#dev-alerts'
+        title: '🔧 Development Alert'
+
+# Inhibition rules - suppress lower severity alerts when higher severity alerts are firing
+inhibit_rules:
+  # Suppress warning alerts when critical alerts are active for the same service
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance', 'service']
+
+  # Suppress individual component alerts when system-wide alerts are firing
+  - source_match_re:
+      alertname: '.*SystemDown'
+    target_match_re:
+      alertname: '.*'
+    equal: ['instance']
+
+  # Suppress resource alerts when the entire node is down
+  - source_match:
+      alertname: 'NodeDown'
+    target_match_re:
+      alertname: 'High.*Usage|Low.*Space'
+    equal: ['instance']
+
+# Time intervals for conditional routing
+time_intervals:
+  - name: dev-work-hours
+    time_intervals:
+      - times:
+        - start_time: '09:00'
+          end_time: '18:00'
+        weekdays: ['monday:friday']
+        location: 'UTC'
+
+  - name: business-hours
+    time_intervals:
+      - times:
+        - start_time: '08:00'
+          end_time: '20:00'
+        weekdays: ['monday:friday']
+        location: 'UTC'
+
+  - name: weekend
+    time_intervals:
+      - weekdays: ['saturday', 'sunday']
+
+# Templates for custom notification formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

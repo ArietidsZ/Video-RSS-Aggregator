@@ -1,0 +1,250 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton-inference-server
+  namespace: model-serving
+  labels:
+    app: triton-server
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: triton-server
+  template:
+    metadata:
+      labels:
+        app: triton-server
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: triton-server
+
+      # Node selector for GPU nodes
+      nodeSelector:
+        gpu-type: "nvidia-a100"
+
+      # Tolerations for GPU nodes
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+
+      # Anti-affinity to spread pods across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - triton-server
+              topologyKey: kubernetes.io/hostname
+
+      initContainers:
+      # Model downloader
+      - name: model-downloader
+        image: alpine/curl:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Downloading models..."
+          # Download models from S3/MinIO
+          curl -o /models/whisper_turbo.onnx https://storage.example.com/models/whisper_turbo.onnx
+          curl -o /models/llama3_8b.onnx https://storage.example.com/models/llama3_8b.onnx
+          echo "Models downloaded successfully"
+        volumeMounts:
+        - name: model-repository
+          mountPath: /models
+
+      containers:
+      - name: triton-server
+        image: nvcr.io/nvidia/tritonserver:24.01-py3
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        - name: grpc
+          containerPort: 8001
+          protocol: TCP
+        - name: metrics
+          containerPort: 8002
+          protocol: TCP
+
+        args:
+        - tritonserver
+        - --model-repository=/models
+        - --model-control-mode=explicit
+        - --load-model=whisper_turbo
+        - --load-model=llama3_summarizer
+        - --load-model=silero_vad
+        - --strict-model-config=false
+        - --gpu-metrics-interval=1000
+        - --metrics-port=8002
+        - --http-port=8000
+        - --grpc-port=8001
+        - --allow-gpu-metrics=true
+        - --log-verbose=1
+        - --backend-config=onnxruntime,enable_cuda_graph=true
+        - --backend-config=tensorrt,max_workspace_size_bytes=2147483648
+
+        env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0,1"
+        - name: LD_PRELOAD
+          value: "/opt/tritonserver/backends/onnxruntime/libtriton_onnxruntime.so"
+        - name: OMP_NUM_THREADS
+          value: "8"
+        - name: TF_ENABLE_ONEDNN_OPTS
+          value: "1"
+        - name: TRITON_CLOUD_CREDENTIAL_PATH
+          value: "/credentials"
+
+        resources:
+          limits:
+            nvidia.com/gpu: "2"
+            cpu: "16"
+            memory: "64Gi"
+          requests:
+            nvidia.com/gpu: "2"
+            cpu: "8"
+            memory: "32Gi"
+
+        volumeMounts:
+        - name: model-repository
+          mountPath: /models
+        - name: shared-memory
+          mountPath: /dev/shm
+        - name: credentials
+          mountPath: /credentials
+          readOnly: true
+
+        livenessProbe:
+          httpGet:
+            path: /v2/health/live
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /v2/health/ready
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+
+        startupProbe:
+          httpGet:
+            path: /v2/health/ready
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+
+      # Sidecar container for monitoring
+      - name: nvidia-dcgm-exporter
+        image: nvidia/dcgm-exporter:latest
+        env:
+        - name: DCGM_EXPORTER_LISTEN
+          value: ":9400"
+        ports:
+        - name: dcgm-metrics
+          containerPort: 9400
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: "0.5"
+            memory: "512Mi"
+
+      volumes:
+      - name: model-repository
+        persistentVolumeClaim:
+          claimName: model-repository-pvc
+      - name: shared-memory
+        emptyDir:
+          medium: Memory
+          sizeLimit: 8Gi
+      - name: credentials
+        secret:
+          secretName: triton-credentials
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: triton-inference-service
+  namespace: model-serving
+  labels:
+    app: triton-server
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+spec:
+  type: LoadBalancer
+  selector:
+    app: triton-server
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  - name: grpc
+    port: 8001
+    targetPort: 8001
+    protocol: TCP
+  - name: metrics
+    port: 8002
+    targetPort: 8002
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: triton-server
+  namespace: model-serving
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: triton-server-role
+  namespace: model-serving
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: triton-server-rolebinding
+  namespace: model-serving
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: triton-server-role
+subjects:
+- kind: ServiceAccount
+  name: triton-server
+  namespace: model-serving

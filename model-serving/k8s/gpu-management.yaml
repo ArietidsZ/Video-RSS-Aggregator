@@ -1,0 +1,263 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-device-plugin-config
+  namespace: model-serving
+data:
+  config.yaml: |
+    version: v1
+    flags:
+      migStrategy: "mixed"
+      failOnInitError: false
+      nvidiaDriverRoot: "/"
+      passDeviceSpecs: false
+      deviceListStrategy: "envvar"
+      deviceIDStrategy: "uuid"
+    resources:
+      - name: nvidia.com/gpu
+        replicas: 8
+    sharing:
+      timeSlicing:
+        renameByDefault: false
+        failRequestsGreaterThanOne: false
+        resources:
+        - name: nvidia.com/gpu
+          replicas: 4  # Allow up to 4 containers per GPU
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin
+  namespace: model-serving
+  labels:
+    app: nvidia-device-plugin
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: nvidia-device-plugin
+  template:
+    metadata:
+      labels:
+        app: nvidia-device-plugin
+    spec:
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      nodeSelector:
+        accelerator: nvidia-gpu
+      priorityClassName: system-node-critical
+      containers:
+      - name: nvidia-device-plugin
+        image: nvcr.io/nvidia/k8s-device-plugin:v0.14.0
+        env:
+        - name: NVIDIA_MIG_MONITOR_DEVICES
+          value: "all"
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "compute,utility"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: config
+          mountPath: /etc/nvidia-device-plugin
+      volumes:
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+      - name: config
+        configMap:
+          name: nvidia-device-plugin-config
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: gpu-high-priority
+  namespace: model-serving
+value: 1000
+globalDefault: false
+description: "High priority for GPU inference workloads"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: gpu-medium-priority
+  namespace: model-serving
+value: 500
+globalDefault: false
+description: "Medium priority for GPU batch jobs"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: gpu-low-priority
+  namespace: model-serving
+value: 100
+globalDefault: false
+description: "Low priority for GPU experimental workloads"
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: gpu-quota-high-priority
+  namespace: model-serving
+spec:
+  hard:
+    requests.nvidia.com/gpu: "4"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["gpu-high-priority"]
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: gpu-quota-medium-priority
+  namespace: model-serving
+spec:
+  hard:
+    requests.nvidia.com/gpu: "2"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["gpu-medium-priority"]
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: gpu-quota-low-priority
+  namespace: model-serving
+spec:
+  hard:
+    requests.nvidia.com/gpu: "1"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["gpu-low-priority"]
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gpu-benchmark
+  namespace: model-serving
+spec:
+  template:
+    metadata:
+      labels:
+        app: gpu-benchmark
+    spec:
+      restartPolicy: Never
+      priorityClassName: gpu-low-priority
+      containers:
+      - name: benchmark
+        image: nvcr.io/nvidia/tensorflow:23.12-tf2-py3
+        command:
+        - python
+        - -c
+        - |
+          import tensorflow as tf
+          import time
+          import numpy as np
+
+          # Check GPU availability
+          gpus = tf.config.list_physical_devices('GPU')
+          print(f"Number of GPUs available: {len(gpus)}")
+
+          if gpus:
+              try:
+                  # Set memory growth
+                  for gpu in gpus:
+                      tf.config.experimental.set_memory_growth(gpu, True)
+
+                  # Create a simple model
+                  model = tf.keras.Sequential([
+                      tf.keras.layers.Dense(4096, activation='relu', input_shape=(4096,)),
+                      tf.keras.layers.Dense(4096, activation='relu'),
+                      tf.keras.layers.Dense(4096, activation='relu'),
+                      tf.keras.layers.Dense(1000, activation='softmax')
+                  ])
+
+                  # Compile model
+                  model.compile(optimizer='adam', loss='categorical_crossentropy')
+
+                  # Generate dummy data
+                  batch_size = 32
+                  x = np.random.random((batch_size * 100, 4096))
+                  y = np.random.random((batch_size * 100, 1000))
+
+                  # Benchmark
+                  start_time = time.time()
+                  history = model.fit(x, y, batch_size=batch_size, epochs=1, verbose=1)
+                  end_time = time.time()
+
+                  throughput = (batch_size * 100) / (end_time - start_time)
+                  print(f"Training throughput: {throughput:.2f} samples/second")
+
+                  # Test inference
+                  test_data = np.random.random((1000, 4096))
+                  start_time = time.time()
+                  predictions = model.predict(test_data, batch_size=32)
+                  end_time = time.time()
+
+                  inference_throughput = 1000 / (end_time - start_time)
+                  print(f"Inference throughput: {inference_throughput:.2f} samples/second")
+
+              except RuntimeError as e:
+                  print(f"GPU error: {e}")
+          else:
+              print("No GPUs found. Running on CPU.")
+
+        resources:
+          limits:
+            nvidia.com/gpu: "1"
+            memory: "8Gi"
+            cpu: "4"
+          requests:
+            nvidia.com/gpu: "1"
+            memory: "4Gi"
+            cpu: "2"
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gpu-metrics
+  namespace: model-serving
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-dcgm-exporter
+  endpoints:
+  - port: dcgm-metrics
+    interval: 30s
+    path: /metrics
+    relabelings:
+    - sourceLabels: [__address__]
+      targetLabel: instance
+    - sourceLabels: [__meta_kubernetes_pod_node_name]
+      targetLabel: node
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: pod
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: "DCGM_.*"
+      targetLabel: __name__
+      replacement: gpu_$1
