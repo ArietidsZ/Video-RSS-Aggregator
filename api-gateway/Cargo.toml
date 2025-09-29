@@ -1,0 +1,85 @@
+[package]
+name = "api-gateway"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.34", features = ["full"] }
+
+# Web frameworks
+axum = { version = "0.7", features = ["ws", "macros"] }
+async-graphql = { version = "7.0", features = ["apollo-tracing", "log", "tracing"] }
+async-graphql-axum = "7.0"
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.4", features = ["full"] }
+hyper = { version = "1.0", features = ["full"] }
+
+# API Management
+tonic = "0.10"
+prost = "0.12"
+openapi = { version = "1.0", features = ["v3_0"] }
+utoipa = { version = "4.0", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "4.0", features = ["axum"] }
+
+# Authentication & Security
+jsonwebtoken = "9.1"
+oauth2 = "4.4"
+argon2 = "0.5"
+
+# Rate Limiting & Caching
+governor = "0.6"
+redis = { version = "0.24", features = ["tokio-comp", "cluster-async"] }
+moka = { version = "0.12", features = ["future"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+opentelemetry = { version = "0.21", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.14"
+prometheus = "0.13"
+
+# Utilities
+anyhow = "1.0"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.5", features = ["v4", "serde"] }
+regex = "1.10"
+lazy_static = "1.4"
+async-trait = "0.1"
+futures = "0.3"
+bytes = "1.5"
+
+# HTTP Client
+reqwest = { version = "0.11", features = ["json", "rustls-tls", "stream"] }
+
+# Load Balancing
+weighted-rs = "0.7"
+
+# Circuit Breaker
+failsafe = "1.2"
+
+# Configuration
+config = "0.13"
+dotenv = "0.15"
+
+# Webhook Support
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.21"
+
+[build-dependencies]
+tonic-build = "0.10"
+
+[[bin]]
+name = "api-gateway"
+path = "src/main.rs"

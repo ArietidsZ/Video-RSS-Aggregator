@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-content-analyzer"
+version = "1.0.0"
+description = "High-performance video content understanding and analysis"
+authors = [{name = "Video RSS Aggregator"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["video", "analysis", "scene-detection", "keyframes", "subtitles"]
+
+dependencies = [
+    "opencv-python>=4.8.0",
+    "scenedetect>=0.6.2",
+    "numpy>=1.24.0",
+    "Pillow>=10.0.0",
+    "pytesseract>=0.3.10",
+    "webvtt-py>=0.4.6",
+    "srt>=3.5.3",
+    "pysubs2>=1.6.1",
+    "pyannote.audio>=3.0.0",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "transformers>=4.35.0",
+    "sentence-transformers>=2.2.0",
+    "scikit-learn>=1.3.0",
+    "pandas>=2.0.0",
+    "tqdm>=4.66.0",
+    "ffmpeg-python>=0.2.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "pyyaml>=6.0",
+    "redis>=5.0.0",
+    "aiohttp>=3.9.0",
+    "asyncio>=3.4.3",
+    "pydantic>=2.0.0",
+    "fire>=0.5.0",
+    "rich>=13.0.0",
+    "onnxruntime-gpu>=1.16.0",
+    "ultralytics>=8.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+    "isort>=5.12.0"
+]
+
+gpu = [
+    "cupy>=12.0.0",
+    "tensorrt>=8.6.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/video-rss-aggregator/video-content-analyzer"
+Documentation = "https://docs.video-rss-aggregator.io"
+Repository = "https://github.com/video-rss-aggregator/video-content-analyzer.git"
+
+[tool.setuptools]
+packages = ["video_analyzer"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "--verbose --cov=video_analyzer --cov-report=term-missing"

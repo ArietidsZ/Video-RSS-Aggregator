@@ -1,0 +1,299 @@
+groups:
+  - name: video-processing-alerts
+    rules:
+      # High-level system health
+      - alert: VideoProcessingSystemDown
+        expr: up{job=~"video-.*|rss-server|triton-.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: "{{ $labels.job }}"
+        annotations:
+          summary: "Video processing component {{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been down for more than 1 minute on {{ $labels.instance }}"
+          runbook_url: "https://docs.video-rss.com/runbooks/component-down"
+
+      # Processing throughput alerts
+      - alert: LowVideoProcessingThroughput
+        expr: rate(video_events_processed_total[5m]) < 10
+        for: 2m
+        labels:
+          severity: warning
+          component: video-processing
+        annotations:
+          summary: "Video processing throughput is below normal"
+          description: "Video processing rate is {{ $value }} events/sec, which is below the expected minimum of 10/sec"
+          runbook_url: "https://docs.video-rss.com/runbooks/low-throughput"
+
+      - alert: HighVideoProcessingLatency
+        expr: histogram_quantile(0.99, rate(video_processing_duration_seconds_bucket[5m])) > 300
+        for: 2m
+        labels:
+          severity: warning
+          component: video-processing
+        annotations:
+          summary: "High video processing latency detected"
+          description: "99th percentile processing latency is {{ $value }}s, which exceeds the 300s threshold"
+          runbook_url: "https://docs.video-rss.com/runbooks/high-latency"
+
+      # Error rate alerts
+      - alert: HighVideoProcessingErrorRate
+        expr: rate(video_events_failed_total[5m]) / rate(video_events_total[5m]) > 0.1
+        for: 1m
+        labels:
+          severity: critical
+          component: video-processing
+        annotations:
+          summary: "High error rate in video processing"
+          description: "Error rate is {{ $value | humanizePercentage }}, which exceeds the 10% threshold"
+          runbook_url: "https://docs.video-rss.com/runbooks/high-error-rate"
+
+      # Queue management alerts
+      - alert: VideoProcessingQueueFull
+        expr: video_processing_queue_utilization > 0.95
+        for: 30s
+        labels:
+          severity: critical
+          component: queue-management
+        annotations:
+          summary: "Video processing queue is nearly full"
+          description: "Queue utilization is {{ $value | humanizePercentage }}, approaching capacity"
+          runbook_url: "https://docs.video-rss.com/runbooks/queue-full"
+
+      - alert: VideoProcessingQueueHigh
+        expr: video_processing_queue_utilization > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          component: queue-management
+        annotations:
+          summary: "Video processing queue utilization is high"
+          description: "Queue utilization is {{ $value | humanizePercentage }}, which may lead to delays"
+
+      # GPU resource alerts
+      - alert: HighGPUUtilization
+        expr: DCGM_FI_DEV_GPU_UTIL > 95
+        for: 5m
+        labels:
+          severity: warning
+          component: gpu-resources
+        annotations:
+          summary: "GPU utilization is very high"
+          description: "GPU {{ $labels.gpu }} utilization is {{ $value }}% for over 5 minutes"
+          runbook_url: "https://docs.video-rss.com/runbooks/high-gpu-usage"
+
+      - alert: GPUMemoryHigh
+        expr: DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL > 0.9
+        for: 2m
+        labels:
+          severity: warning
+          component: gpu-resources
+        annotations:
+          summary: "GPU memory usage is high"
+          description: "GPU {{ $labels.gpu }} memory usage is {{ $value | humanizePercentage }}"
+
+      - alert: GPUTemperatureHigh
+        expr: DCGM_FI_DEV_GPU_TEMP > 85
+        for: 1m
+        labels:
+          severity: critical
+          component: gpu-resources
+        annotations:
+          summary: "GPU temperature is critically high"
+          description: "GPU {{ $labels.gpu }} temperature is {{ $value }}°C, which may cause throttling"
+
+      # Model serving alerts
+      - alert: TritonInferenceServerDown
+        expr: up{job="triton-inference-server"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: model-serving
+        annotations:
+          summary: "Triton Inference Server is down"
+          description: "Triton server has been unreachable for 30 seconds"
+          runbook_url: "https://docs.video-rss.com/runbooks/triton-down"
+
+      - alert: HighModelInferenceLatency
+        expr: histogram_quantile(0.99, rate(triton_inference_request_duration_ms_bucket[5m])) > 5000
+        for: 1m
+        labels:
+          severity: warning
+          component: model-serving
+        annotations:
+          summary: "High model inference latency"
+          description: "99th percentile inference latency is {{ $value }}ms, exceeding 5s threshold"
+
+      - alert: ModelLoadFailure
+        expr: increase(triton_model_loading_errors_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          component: model-serving
+        annotations:
+          summary: "Model loading failure detected"
+          description: "{{ $value }} model loading errors in the last 5 minutes"
+
+      # Storage and caching alerts
+      - alert: HighRedisMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 2m
+        labels:
+          severity: warning
+          component: caching
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}"
+
+      - alert: RedisConnectionsHigh
+        expr: redis_connected_clients > 500
+        for: 2m
+        labels:
+          severity: warning
+          component: caching
+        annotations:
+          summary: "High number of Redis connections"
+          description: "Redis has {{ $value }} connected clients"
+
+      - alert: CassandraNodeDown
+        expr: up{job="cassandra"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "Cassandra node is down"
+          description: "Cassandra node {{ $labels.instance }} is unreachable"
+
+      # Kafka streaming alerts
+      - alert: KafkaConsumerLag
+        expr: kafka_consumer_lag_sum > 10000
+        for: 2m
+        labels:
+          severity: warning
+          component: streaming
+        annotations:
+          summary: "High Kafka consumer lag"
+          description: "Consumer lag is {{ $value }} messages behind"
+
+      - alert: KafkaBrokerDown
+        expr: up{job="kafka-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: streaming
+        annotations:
+          summary: "Kafka broker is down"
+          description: "Kafka broker monitoring is unavailable"
+
+      # WebRTC streaming alerts
+      - alert: HighWebRTCConnectionFailures
+        expr: rate(webrtc_connection_failures_total[5m]) > 5
+        for: 1m
+        labels:
+          severity: warning
+          component: webrtc
+        annotations:
+          summary: "High WebRTC connection failure rate"
+          description: "WebRTC connection failures: {{ $value }}/sec"
+
+      - alert: WebRTCHighLatency
+        expr: webrtc_connection_latency_ms > 500
+        for: 2m
+        labels:
+          severity: warning
+          component: webrtc
+        annotations:
+          summary: "High WebRTC connection latency"
+          description: "WebRTC latency is {{ $value }}ms"
+
+      # Circuit breaker alerts
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state == 1
+        for: 0s
+        labels:
+          severity: critical
+          component: circuit-breaker
+        annotations:
+          summary: "Circuit breaker is open"
+          description: "Circuit breaker for {{ $labels.service }} is open, blocking requests"
+
+      # Resource utilization alerts
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 2m
+        labels:
+          severity: warning
+          component: system-resources
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+        for: 2m
+        labels:
+          severity: warning
+          component: system-resources
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+      - alert: LowDiskSpace
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) > 0.9
+        for: 1m
+        labels:
+          severity: critical
+          component: system-resources
+        annotations:
+          summary: "Low disk space"
+          description: "Disk usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}:{{ $labels.mountpoint }}"
+
+      # Network alerts
+      - alert: HighNetworkErrorRate
+        expr: rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High network error rate"
+          description: "Network errors: {{ $value }}/sec on {{ $labels.instance }}"
+
+  - name: performance-sli-alerts
+    rules:
+      # SLI: 99% of video processing completes within 60 seconds
+      - alert: VideoProcessingSLIViolation
+        expr: histogram_quantile(0.99, rate(video_processing_duration_seconds_bucket[5m])) > 60
+        for: 5m
+        labels:
+          severity: critical
+          component: sli-violation
+          sli: video-processing-latency
+        annotations:
+          summary: "Video processing SLI violation"
+          description: "99th percentile processing time is {{ $value }}s, violating 60s SLI"
+
+      # SLI: 99.9% uptime for RSS feed serving
+      - alert: RSSServingSLIViolation
+        expr: (rate(rss_requests_total[5m]) - rate(rss_requests_errors_total[5m])) / rate(rss_requests_total[5m]) < 0.999
+        for: 1m
+        labels:
+          severity: critical
+          component: sli-violation
+          sli: rss-availability
+        annotations:
+          summary: "RSS serving availability SLI violation"
+          description: "RSS serving availability is {{ $value | humanizePercentage }}, below 99.9% SLI"
+
+      # SLI: Error rate below 1%
+      - alert: OverallErrorRateSLIViolation
+        expr: (sum(rate(video_events_failed_total[5m])) / sum(rate(video_events_total[5m]))) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          component: sli-violation
+          sli: error-rate
+        annotations:
+          summary: "Overall error rate SLI violation"
+          description: "System error rate is {{ $value | humanizePercentage }}, exceeding 1% SLI"

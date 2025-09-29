@@ -1,0 +1,82 @@
+[package]
+name = "cache-manager"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Web framework
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors", "compression"] }
+
+# Redis
+redis = { version = "0.24", features = ["tokio-comp", "cluster-async", "connection-manager"] }
+redis-cluster-async = "0.7"
+bb8 = "0.8"
+bb8-redis = "0.14"
+
+# Cassandra
+scylla = "0.11"
+scylla-cql = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+rmp-serde = "1.1"
+
+# Hashing and sharding
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+consistent-hash = "1.0"
+rendezvous_hash = "0.3"
+murmur3 = "0.5"
+
+# Utilities
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+config = "0.13"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+bytes = "1.5"
+
+# Metrics
+prometheus = "0.13"
+metrics = "0.21"
+metrics-exporter-prometheus = "0.12"
+
+# Compression
+lz4 = "1.24"
+zstd = "0.13"
+flate2 = "1.0"
+
+# Cache algorithms
+lru = "0.12"
+arc-cache = "0.2"
+moka = { version = "0.12", features = ["future"] }
+
+# Background jobs
+tokio-cron-scheduler = "0.9"
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.4"
+tempfile = "3.8"
+
+[[bench]]
+name = "cache_benchmarks"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.bench]
+inherits = "release"

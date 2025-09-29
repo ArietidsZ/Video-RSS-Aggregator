@@ -116,25 +116,17 @@ github_token.txt
 credentials.json
 
 # Rust
-video-rss-core/target/
-video-rss-core/Cargo.lock
+target/
+Cargo.lock
 *.rlib
 *.rmeta
 
-# Go
-go-api-server/go.sum
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# C++
+build/
+cmake-build-*/
+*.o
+*.a
 
-# Next.js Frontend
-video-rss-frontend/.next/
-video-rss-frontend/out/
-video-rss-frontend/build/
-video-rss-frontend/.env.local
-video-rss-frontend/package-lock.json
-
-# Rust target directory
-target/
+# Frontend build artifacts
+dist/
+.cache/
