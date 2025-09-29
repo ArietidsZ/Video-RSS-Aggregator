@@ -1,2 +1,0 @@
-- Feature target: RSS server that provides video summaries. Should support automatic setup with hardware detection and configuration. Components should be implemented in appropriate programming languages for their specific purposes.
-- Performance target: Efficient single-stream processing that utilizes available computing resources. Target processing time ratio of 1:10 (process 10 minutes of video in 1 minute or less).
