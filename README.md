@@ -116,7 +116,7 @@ curl -X POST http://localhost:8080/api/v3/summarize \
 
 ## License
 
-MIT License - See LICENSE file for details.
+Apache 2.0 - See LICENSE file for details.
 
 ## Disclaimer
 
