@@ -6,6 +6,7 @@ mod documentation;
 
 use anyhow::Result;
 use axum::{
+    extract::State,
     http::StatusCode,
     response::IntoResponse,
     Router,
@@ -13,8 +14,59 @@ use axum::{
 use clap::Parser;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 use tower_http::cors::CorsLayer;
 use tracing::{info, error};
+
+#[derive(Clone)]
+struct AppMetrics {
+    start_time: Arc<Instant>,
+    requests_total: Arc<AtomicU64>,
+    errors_total: Arc<AtomicU64>,
+    response_time_sum_ms: Arc<AtomicU64>,
+}
+
+impl AppMetrics {
+    fn new() -> Self {
+        Self {
+            start_time: Arc::new(Instant::now()),
+            requests_total: Arc::new(AtomicU64::new(0)),
+            errors_total: Arc::new(AtomicU64::new(0)),
+            response_time_sum_ms: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    fn record_request(&self, duration_ms: u64, is_error: bool) {
+        self.requests_total.fetch_add(1, Ordering::Relaxed);
+        self.response_time_sum_ms.fetch_add(duration_ms, Ordering::Relaxed);
+        if is_error {
+            self.errors_total.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn get_uptime_seconds(&self) -> u64 {
+        self.start_time.elapsed().as_secs()
+    }
+
+    fn get_requests_total(&self) -> u64 {
+        self.requests_total.load(Ordering::Relaxed)
+    }
+
+    fn get_errors_total(&self) -> u64 {
+        self.errors_total.load(Ordering::Relaxed)
+    }
+
+    fn get_avg_response_time_ms(&self) -> f64 {
+        let total_requests = self.get_requests_total();
+        if total_requests == 0 {
+            return 0.0;
+        }
+        let total_time = self.response_time_sum_ms.load(Ordering::Relaxed);
+        total_time as f64 / total_requests as f64
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -69,10 +121,10 @@ async fn main() -> Result<()> {
     let app = create_app_router(pool.clone(), &args.redis_url).await?;
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("API Gateway listening on {}", addr);
 
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    axum::serve(listener, app)
         .await?;
 
     Ok(())
@@ -89,6 +141,9 @@ async fn create_app_router(pool: sqlx::PgPool, redis_url: &str) -> Result<Router
         webhooks::WebhookManager::new(pool.clone(), webhooks::WebhookConfig::default()).await?
     );
 
+    // Initialize metrics
+    let app_metrics = AppMetrics::new();
+
     // Create routers
     let gateway_router = gateway::create_router(api_gateway);
     let graphql_router = graphql::create_graphql_router(pool.clone());
@@ -101,6 +156,7 @@ async fn create_app_router(pool: sqlx::PgPool, redis_url: &str) -> Result<Router
         .route("/", axum::routing::get(root))
         .route("/health", axum::routing::get(health_check))
         .route("/metrics", axum::routing::get(metrics))
+        .with_state(app_metrics)
         .nest("/gateway", gateway_router)
         .nest("/", graphql_router)
         .nest("/", versioned_router)
@@ -126,13 +182,18 @@ async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
 
-async fn metrics() -> impl IntoResponse {
-    // Would implement actual metrics collection
+async fn metrics(State(metrics): State<AppMetrics>) -> impl IntoResponse {
+    // Collect real metrics from the application
     axum::Json(serde_json::json!({
-        "uptime": 0,
-        "requests_total": 0,
-        "errors_total": 0,
-        "response_time_ms": 0
+        "uptime_seconds": metrics.get_uptime_seconds(),
+        "requests_total": metrics.get_requests_total(),
+        "errors_total": metrics.get_errors_total(),
+        "avg_response_time_ms": metrics.get_avg_response_time_ms(),
+        "error_rate": if metrics.get_requests_total() > 0 {
+            metrics.get_errors_total() as f64 / metrics.get_requests_total() as f64
+        } else {
+            0.0
+        }
     }))
 }
 

@@ -12,6 +12,8 @@ use uuid::Uuid;
 
 use crate::audit::{AuditEvent, AuditEventType, AuditResult, AuditService, AuditSeverity};
 use crate::rate_limit::{RateLimitRequest, RateLimitService};
+use crate::auth::AuthService;
+use crate::rbac::{PermissionCheck, RBACService};
 
 pub async fn rate_limit_middleware(
     State(rate_limit_service): State<Arc<RateLimitService>>,
@@ -141,6 +143,7 @@ pub async fn audit_middleware(
     // Determine if this is an API access event
     let is_api_request = path.starts_with("/api/");
     let resource = determine_resource_from_path(&path);
+    let query_string = request.uri().query().map(|s| s.to_string());
 
     // Continue to next middleware/handler
     let response = next.run(request).await;
@@ -149,7 +152,11 @@ pub async fn audit_middleware(
     let status_code = response.status().as_u16();
 
     // Determine audit event type and action
-    let (event_type, action) = classify_request(&method, &path, status_code);
+    // For API requests, ensure we capture them as ApiAccess events
+    let (mut event_type, action) = classify_request(&method, &path, status_code);
+    if is_api_request && matches!(event_type, AuditEventType::DataAccess | AuditEventType::DataModification) {
+        event_type = AuditEventType::ApiAccess;
+    }
 
     // Determine result
     let result = if status_code >= 200 && status_code < 300 {
@@ -176,17 +183,17 @@ pub async fn audit_middleware(
         resource,
         action,
         details: serde_json::json!({
-            "path": path,
-            "query_string": request.uri().query(),
+            "path": &path,
+            "query_string": query_string,
             "user_agent": headers.get("user-agent").and_then(|h| h.to_str().ok()),
             "referer": headers.get("referer").and_then(|h| h.to_str().ok()),
         }),
         result,
         severity,
         timestamp: chrono::Utc::now(),
-        request_id: Some(request_id),
-        endpoint: Some(path),
-        method: Some(method),
+        request_id: Some(request_id.clone()),
+        endpoint: Some(path.clone()),
+        method: Some(method.clone()),
         status_code: Some(status_code),
         response_time_ms: Some(duration.as_millis() as u64),
         error_message: if status_code >= 400 {
@@ -220,6 +227,7 @@ pub async fn audit_middleware(
 }
 
 pub async fn authentication_middleware(
+    State(auth_service): State<Arc<AuthService>>,
     headers: HeaderMap,
     mut request: Request,
     next: Next,
@@ -244,22 +252,25 @@ pub async fn authentication_middleware(
         }
     };
 
-    // Validate token (simplified - in real implementation, use auth service)
-    if !is_valid_token(token) {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
+    // Validate token using auth service with proper JWT verification
+    let claims = match auth_service.decode_and_validate_token(token).await {
+        Ok(claims) => claims,
+        Err(e) => {
+            warn!("Token validation failed: {}", e);
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    };
 
     // Add user information to request headers for downstream handlers
-    if let Some(user_id) = extract_user_from_token(token) {
-        request
-            .headers_mut()
-            .insert("X-User-ID", user_id.parse().unwrap());
-    }
+    request
+        .headers_mut()
+        .insert("X-User-ID", claims.sub.parse().unwrap());
 
     Ok(next.run(request).await)
 }
 
 pub async fn authorization_middleware(
+    State(rbac_service): State<Arc<RBACService>>,
     headers: HeaderMap,
     request: Request,
     next: Next,
@@ -282,11 +293,32 @@ pub async fn authorization_middleware(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    // Check permissions (simplified - in real implementation, use RBAC service)
-    let required_permission = determine_required_permission(method, path);
+    let user_id = user_id.unwrap();
 
-    if !user_has_permission(user_id.unwrap(), &required_permission).await {
-        return Err(StatusCode::FORBIDDEN);
+    // Determine required permission based on HTTP method and resource
+    let (resource, action) = determine_resource_and_action(method, path);
+
+    let permission_check = PermissionCheck {
+        resource: resource.to_string(),
+        action: action.to_string(),
+        context: None, // Could add resource ownership context here if needed
+    };
+
+    // Check permissions using RBAC service
+    match rbac_service.check_permission(&user_id, &permission_check).await {
+        Ok(has_permission) => {
+            if !has_permission {
+                warn!(
+                    "User {} denied access to {}:{} on {}",
+                    user_id, resource, action, path
+                );
+                return Err(StatusCode::FORBIDDEN);
+            }
+        }
+        Err(e) => {
+            warn!("Permission check failed: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     }
 
     Ok(next.run(request).await)
@@ -331,6 +363,32 @@ fn extract_user_id_from_headers(headers: &HeaderMap) -> Option<Uuid> {
         .and_then(|s| s.parse().ok())
 }
 
+fn extract_user_from_token(token: &str) -> Option<String> {
+    // Simple JWT decode without verification (just extract sub claim)
+    // This is for quick user ID extraction in middleware
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+
+    // Decode the payload (second part)
+    use base64::{Engine as _, engine::general_purpose};
+    let payload = parts[1];
+    match general_purpose::URL_SAFE_NO_PAD.decode(payload) {
+        Ok(decoded) => {
+            match serde_json::from_slice::<serde_json::Value>(&decoded) {
+                Ok(claims) => {
+                    claims.get("sub")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                }
+                Err(_) => None
+            }
+        }
+        Err(_) => None
+    }
+}
+
 fn extract_session_id_from_headers(headers: &HeaderMap) -> Option<String> {
     headers
         .get("X-Session-ID")
@@ -369,7 +427,13 @@ fn determine_resource_from_path(path: &str) -> String {
 }
 
 fn classify_request(method: &str, path: &str, status_code: u16) -> (AuditEventType, String) {
-    let event_type = if path.starts_with("/auth") {
+    // Use status_code to refine event classification for security events
+    let is_failure = status_code >= 400;
+    let is_auth_failure = is_failure && (path.starts_with("/auth") || path.starts_with("/oauth"));
+
+    let event_type = if is_auth_failure {
+        AuditEventType::SecurityIncident
+    } else if path.starts_with("/auth") {
         AuditEventType::Authentication
     } else if path.starts_with("/oauth") {
         AuditEventType::Authentication
@@ -382,11 +446,15 @@ fn classify_request(method: &str, path: &str, status_code: u16) -> (AuditEventTy
     } else if method == "DELETE" {
         AuditEventType::DataModification
     } else {
-        AuditEventType::APIAccess
+        AuditEventType::ApiAccess
     };
 
     let action = if path.contains("/login") {
-        "login".to_string()
+        if is_failure {
+            "failed_login".to_string()
+        } else {
+            "login".to_string()
+        }
     } else if path.contains("/logout") {
         "logout".to_string()
     } else if path.contains("/register") {
@@ -451,23 +519,7 @@ fn is_public_endpoint(path: &str) -> bool {
     public_paths.iter().any(|&public_path| path.starts_with(public_path))
 }
 
-fn is_valid_token(token: &str) -> bool {
-    // Simplified token validation
-    // In real implementation, this would use the auth service to validate JWT
-    !token.is_empty() && token.len() > 20
-}
-
-fn extract_user_from_token(token: &str) -> Option<String> {
-    // Simplified user extraction from token
-    // In real implementation, this would decode JWT and extract user ID
-    if is_valid_token(token) {
-        Some("user-id-from-token".to_string())
-    } else {
-        None
-    }
-}
-
-fn determine_required_permission(method: &str, path: &str) -> String {
+fn determine_resource_and_action(method: &str, path: &str) -> (String, String) {
     let resource = determine_resource_from_path(path);
     let action = match method {
         "GET" => "read",
@@ -477,12 +529,5 @@ fn determine_required_permission(method: &str, path: &str) -> String {
         _ => "access",
     };
 
-    format!("{}:{}", resource, action)
-}
-
-async fn user_has_permission(user_id: Uuid, permission: &str) -> bool {
-    // Simplified permission check
-    // In real implementation, this would use the RBAC service
-    tracing::debug!("Checking permission {} for user {}", permission, user_id);
-    true // Allow all for now
+    (resource, action.to_string())
 }

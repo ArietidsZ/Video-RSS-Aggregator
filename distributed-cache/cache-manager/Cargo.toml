@@ -31,7 +31,7 @@ rmp-serde = "1.1"
 
 # Hashing and sharding
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-consistent-hash = "1.0"
+consistent_hash = "0.1"
 rendezvous_hash = "0.3"
 murmur3 = "0.5"
 
@@ -67,10 +67,6 @@ tokio-cron-scheduler = "0.9"
 criterion = "0.5"
 proptest = "1.4"
 tempfile = "3.8"
-
-[[bench]]
-name = "cache_benchmarks"
-harness = false
 
 [profile.release]
 opt-level = 3

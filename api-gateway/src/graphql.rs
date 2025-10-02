@@ -20,6 +20,11 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error, info};
 use uuid::Uuid;
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+    Argon2,
+};
+use base64::{Engine as _, engine::general_purpose};
 
 // GraphQL Schema Types
 
@@ -223,16 +228,13 @@ impl Loader<ID> for ChannelLoader {
         let ids: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
 
         // Fetch channels from database
-        let channels = sqlx::query_as!(
-            Channel,
-            r#"
-            SELECT id as "id: ID", name, description, url,
+        let channels = sqlx::query_as::<_, Channel>(
+            "SELECT id, name, description, url,
                    subscriber_count, video_count, created_at
             FROM channels
-            WHERE id = ANY($1)
-            "#,
-            &ids[..]
+            WHERE id = ANY($1)"
         )
+        .bind(&ids[..])
         .fetch_all(&self.pool)
         .await
         .map_err(|e| async_graphql::Error::new(e.to_string()))?;
@@ -258,18 +260,15 @@ impl QueryRoot {
     async fn video(&self, ctx: &Context<'_>, id: ID) -> Result<Option<Video>> {
         let pool = ctx.data::<PgPool>()?;
 
-        let video = sqlx::query_as!(
-            Video,
-            r#"
-            SELECT id as "id: ID", title, description, url, thumbnail_url,
-                   duration_seconds, channel_id as "channel_id: ID",
+        let video = sqlx::query_as::<_, Video>(
+            "SELECT id, title, description, url, thumbnail_url,
+                   duration_seconds, channel_id,
                    quality_score, view_count, like_count,
                    created_at, updated_at
             FROM videos
-            WHERE id = $1
-            "#,
-            id.to_string()
+            WHERE id = $1"
         )
+        .bind(id.to_string())
         .fetch_optional(pool)
         .await?;
 
@@ -324,23 +323,42 @@ impl QueryRoot {
 
         query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
 
-        // Execute query (simplified - in production use proper query builder)
-        let videos: Vec<Video> = Vec::new(); // Would execute actual query
+        // Execute query using sqlx
+        let videos = sqlx::query_as::<_, Video>(
+            "SELECT id, title, description, url, thumbnail_url,
+                   duration_seconds, channel_id, quality_score,
+                   view_count, like_count, created_at, updated_at
+            FROM videos
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2"
+        )
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| Error::new(format!("Failed to fetch videos: {}", e)))?;
 
         // Get total count
-        let total_count = 100; // Would get actual count
+        let total_count_result = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM videos"
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(|e| Error::new(format!("Failed to count videos: {}", e)))?;
+
+        let total_count = total_count_result as i32;
 
         // Build connection response
         let edges = videos
             .into_iter()
             .map(|video| VideoEdge {
-                cursor: base64::encode(&video.id.to_string()),
+                cursor: general_purpose::STANDARD.encode(video.id.to_string()),
                 node: video,
             })
             .collect();
 
         let page_info = PageInfo {
-            has_next_page: offset + limit < total_count,
+            has_next_page: (offset + limit) as i32 < total_count,
             has_previous_page: offset > 0,
             start_cursor: edges.first().map(|e| e.cursor.clone()),
             end_cursor: edges.last().map(|e| e.cursor.clone()),
@@ -362,14 +380,11 @@ impl QueryRoot {
     async fn channels(&self, ctx: &Context<'_>) -> Result<Vec<Channel>> {
         let pool = ctx.data::<PgPool>()?;
 
-        let channels = sqlx::query_as!(
-            Channel,
-            r#"
-            SELECT id as "id: ID", name, description, url,
+        let channels = sqlx::query_as::<_, Channel>(
+            "SELECT id, name, description, url,
                    subscriber_count, video_count, created_at
             FROM channels
-            ORDER BY subscriber_count DESC
-            "#
+            ORDER BY subscriber_count DESC"
         )
         .fetch_all(pool)
         .await?;
@@ -385,18 +400,15 @@ impl QueryRoot {
         if let Some(id) = user_id {
             let pool = ctx.data::<PgPool>()?;
 
-            let user = sqlx::query_as!(
-                User,
-                r#"
-                SELECT id as "id: ID", username, email,
-                       role as "role: UserRole",
-                       preferences as "preferences: UserPreferences",
+            let user = sqlx::query_as::<_, User>(
+                "SELECT id, username, email,
+                       role,
+                       preferences,
                        created_at, last_login
                 FROM users
-                WHERE id = $1
-                "#,
-                id
+                WHERE id = $1"
             )
+            .bind(id)
             .fetch_optional(pool)
             .await?;
 
@@ -435,19 +447,16 @@ impl QueryRoot {
         let pool = ctx.data::<PgPool>()?;
         let limit = limit.unwrap_or(10);
 
-        let recommendations = sqlx::query_as!(
-            Recommendation,
-            r#"
-            SELECT id as "id: ID", user_id as "user_id: ID",
-                   video_id as "video_id: ID", score, reason, created_at
+        let recommendations = sqlx::query_as::<_, Recommendation>(
+            "SELECT id, user_id,
+                   video_id, score, reason, created_at
             FROM recommendations
             WHERE user_id = $1
             ORDER BY score DESC
-            LIMIT $2
-            "#,
-            user_id.to_string(),
-            limit as i64
+            LIMIT $2"
         )
+        .bind(user_id.to_string())
+        .bind(limit as i64)
         .fetch_all(pool)
         .await?;
 
@@ -471,28 +480,25 @@ impl MutationRoot {
         let video_id = Uuid::new_v4().to_string();
         let now = Utc::now();
 
-        let video = sqlx::query_as!(
-            Video,
-            r#"
-            INSERT INTO videos (id, title, description, url, thumbnail_url,
+        let video = sqlx::query_as::<_, Video>(
+            "INSERT INTO videos (id, title, description, url, thumbnail_url,
                               duration_seconds, channel_id, quality_score,
                               view_count, like_count, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 0.5, 0, 0, $8, $9)
-            RETURNING id as "id: ID", title, description, url, thumbnail_url,
-                      duration_seconds, channel_id as "channel_id: ID",
+            RETURNING id, title, description, url, thumbnail_url,
+                      duration_seconds, channel_id,
                       quality_score, view_count, like_count,
-                      created_at, updated_at
-            "#,
-            video_id,
-            input.title,
-            input.description,
-            input.url,
-            input.thumbnail_url,
-            input.duration_seconds,
-            input.channel_id.to_string(),
-            now,
-            now
+                      created_at, updated_at"
         )
+        .bind(&video_id)
+        .bind(&input.title)
+        .bind(&input.description)
+        .bind(&input.url)
+        .bind(&input.thumbnail_url)
+        .bind(input.duration_seconds)
+        .bind(input.channel_id.to_string())
+        .bind(now)
+        .bind(now)
         .fetch_one(pool)
         .await?;
 
@@ -524,19 +530,16 @@ impl MutationRoot {
         }
 
         // Execute update (simplified - in production use proper query builder)
-        let video = sqlx::query_as!(
-            Video,
-            r#"
-            UPDATE videos
+        let video = sqlx::query_as::<_, Video>(
+            "UPDATE videos
             SET updated_at = NOW()
             WHERE id = $1
-            RETURNING id as "id: ID", title, description, url, thumbnail_url,
-                      duration_seconds, channel_id as "channel_id: ID",
+            RETURNING id, title, description, url, thumbnail_url,
+                      duration_seconds, channel_id,
                       quality_score, view_count, like_count,
-                      created_at, updated_at
-            "#,
-            input.id.to_string()
+                      created_at, updated_at"
         )
+        .bind(input.id.to_string())
         .fetch_one(pool)
         .await?;
 
@@ -549,10 +552,10 @@ impl MutationRoot {
     async fn delete_video(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let pool = ctx.data::<PgPool>()?;
 
-        let result = sqlx::query!(
-            "DELETE FROM videos WHERE id = $1",
-            id.to_string()
+        let result = sqlx::query(
+            "DELETE FROM videos WHERE id = $1"
         )
+        .bind(id.to_string())
         .execute(pool)
         .await?;
 
@@ -568,8 +571,14 @@ impl MutationRoot {
     async fn create_user(&self, ctx: &Context<'_>, input: CreateUserInput) -> Result<User> {
         let pool = ctx.data::<PgPool>()?;
 
-        // Hash password (simplified - use proper password hashing)
-        let password_hash = format!("hashed_{}", input.password);
+        // Hash password using Argon2
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let password_hash = argon2
+            .hash_password(input.password.as_bytes(), &salt)
+            .map_err(|e| Error::new(format!("Failed to hash password: {}", e)))?
+            .to_string();
+
         let user_id = Uuid::new_v4().to_string();
         let now = Utc::now();
 
@@ -581,25 +590,22 @@ impl MutationRoot {
             notifications_enabled: true,
         };
 
-        let user = sqlx::query_as!(
-            User,
-            r#"
-            INSERT INTO users (id, username, email, password_hash,
+        let user = sqlx::query_as::<_, User>(
+            "INSERT INTO users (id, username, email, password_hash,
                              role, preferences, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id as "id: ID", username, email,
-                      role as "role: UserRole",
-                      preferences as "preferences: UserPreferences",
-                      created_at, last_login
-            "#,
-            user_id,
-            input.username,
-            input.email,
-            password_hash,
-            input.role.unwrap_or(UserRole::User) as i32,
-            serde_json::to_value(&default_preferences)?,
-            now
+            RETURNING id, username, email,
+                      role,
+                      preferences,
+                      created_at, last_login"
         )
+        .bind(&user_id)
+        .bind(&input.username)
+        .bind(&input.email)
+        .bind(&password_hash)
+        .bind(input.role.unwrap_or(UserRole::User) as i32)
+        .bind(serde_json::to_value(&default_preferences)?)
+        .bind(now)
         .fetch_one(pool)
         .await?;
 
@@ -615,14 +621,14 @@ impl MutationRoot {
         let pool = ctx.data::<PgPool>()?;
 
         // Get current preferences
-        let current_user = sqlx::query!(
-            "SELECT preferences FROM users WHERE id = $1",
-            user_id
+        let current_user = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT preferences FROM users WHERE id = $1"
         )
+        .bind(&user_id)
         .fetch_one(pool)
         .await?;
 
-        let mut preferences: UserPreferences = serde_json::from_value(current_user.preferences)?;
+        let mut preferences: UserPreferences = serde_json::from_value(current_user)?;
 
         // Update preferences
         if let Some(categories) = input.categories {
@@ -636,20 +642,17 @@ impl MutationRoot {
         }
 
         // Save updated preferences
-        let user = sqlx::query_as!(
-            User,
-            r#"
-            UPDATE users
+        let user = sqlx::query_as::<_, User>(
+            "UPDATE users
             SET preferences = $2
             WHERE id = $1
-            RETURNING id as "id: ID", username, email,
-                      role as "role: UserRole",
-                      preferences as "preferences: UserPreferences",
-                      created_at, last_login
-            "#,
-            user_id,
-            serde_json::to_value(&preferences)?
+            RETURNING id, username, email,
+                      role,
+                      preferences,
+                      created_at, last_login"
         )
+        .bind(&user_id)
+        .bind(serde_json::to_value(&preferences)?)
         .fetch_one(pool)
         .await?;
 
@@ -662,19 +665,16 @@ impl MutationRoot {
         let feed_id = Uuid::new_v4().to_string();
         let now = Utc::now();
 
-        let feed = sqlx::query_as!(
-            Feed,
-            r#"
-            INSERT INTO feeds (id, url, title, description, category,
+        let feed = sqlx::query_as::<_, Feed>(
+            "INSERT INTO feeds (id, url, title, description, category,
                              update_frequency_minutes, active, created_at)
             VALUES ($1, $2, 'New Feed', 'Pending', 'uncategorized', 60, true, $3)
-            RETURNING id as "id: ID", url, title, description, category,
-                      update_frequency_minutes, last_fetched, active, created_at
-            "#,
-            feed_id,
-            url,
-            now
+            RETURNING id, url, title, description, category,
+                      update_frequency_minutes, last_fetched, active, created_at"
         )
+        .bind(&feed_id)
+        .bind(&url)
+        .bind(now)
         .fetch_one(pool)
         .await?;
 
@@ -765,17 +765,14 @@ impl Video {
     async fn summary(&self, ctx: &Context<'_>) -> Result<Option<Summary>> {
         let pool = ctx.data::<PgPool>()?;
 
-        let summary = sqlx::query_as!(
-            Summary,
-            r#"
-            SELECT id as "id: ID", video_id as "video_id: ID",
+        let summary = sqlx::query_as::<_, Summary>(
+            "SELECT id, video_id,
                    content, key_points, sentiment_score,
                    language, word_count, created_at
             FROM summaries
-            WHERE video_id = $1
-            "#,
-            self.id.to_string()
+            WHERE video_id = $1"
         )
+        .bind(self.id.to_string())
         .fetch_optional(pool)
         .await?;
 
@@ -793,21 +790,18 @@ impl Channel {
         let pool = ctx.data::<PgPool>()?;
         let limit = limit.unwrap_or(10);
 
-        let videos = sqlx::query_as!(
-            Video,
-            r#"
-            SELECT id as "id: ID", title, description, url, thumbnail_url,
-                   duration_seconds, channel_id as "channel_id: ID",
+        let videos = sqlx::query_as::<_, Video>(
+            "SELECT id, title, description, url, thumbnail_url,
+                   duration_seconds, channel_id,
                    quality_score, view_count, like_count,
                    created_at, updated_at
             FROM videos
             WHERE channel_id = $1
             ORDER BY created_at DESC
-            LIMIT $2
-            "#,
-            self.id.to_string(),
-            limit as i64
+            LIMIT $2"
         )
+        .bind(self.id.to_string())
+        .bind(limit as i64)
         .fetch_all(pool)
         .await?;
 

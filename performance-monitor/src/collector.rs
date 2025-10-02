@@ -491,21 +491,19 @@ impl MetricsCollector {
         component_metrics: &ComponentMetrics,
     ) -> Result<()> {
         // Store in database for long-term analysis
-        sqlx::query!(
-            r#"
-            INSERT INTO performance_metrics (
+        sqlx::query(
+            "INSERT INTO performance_metrics (
                 timestamp, cpu_usage, memory_usage, api_requests_per_sec,
                 api_response_time_p99, error_rate, active_connections
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-            "#,
-            system_metrics.timestamp,
-            system_metrics.cpu_usage,
-            system_metrics.memory_usage,
-            app_metrics.api_requests_per_sec,
-            app_metrics.api_response_time_p99,
-            app_metrics.error_rate,
-            app_metrics.active_connections as i64
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)"
         )
+        .bind(system_metrics.timestamp)
+        .bind(system_metrics.cpu_usage)
+        .bind(system_metrics.memory_usage)
+        .bind(app_metrics.api_requests_per_sec)
+        .bind(app_metrics.api_response_time_p99)
+        .bind(app_metrics.error_rate)
+        .bind(app_metrics.active_connections as i64)
         .execute(&self.database)
         .await?;
 

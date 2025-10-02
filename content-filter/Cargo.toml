@@ -57,7 +57,7 @@ reqwest = { version = "0.11", features = ["json", "stream"] }
 
 # Hashing and Similarity
 simhash = "0.2"
-minhash-rs = "0.3"
+minhash-rs = "0.2"
 levenshtein = "1.0"
 strsim = "0.11"
 
@@ -85,7 +85,3 @@ criterion = "0.5"
 [[bin]]
 name = "content-filter"
 path = "src/main.rs"
-
-[[bench]]
-name = "filtering_bench"
-harness = false

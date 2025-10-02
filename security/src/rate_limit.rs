@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use governor::{
-    clock::{Clock, DefaultClock},
+    clock::DefaultClock,
     middleware::NoOpMiddleware,
     state::{InMemoryState, NotKeyed},
     Quota, RateLimiter,
@@ -333,8 +333,10 @@ impl RateLimitService {
 
         for rule in rules.iter() {
             if rule.enabled {
-                let quota = Quota::per_second(nonzero!(rule.max_requests))
-                    .allow_burst(nonzero!(rule.burst_size.unwrap_or(rule.max_requests / 10)));
+                let max_req = std::num::NonZeroU32::new(rule.max_requests).unwrap_or(nonzero!(1u32));
+                let burst = std::num::NonZeroU32::new(rule.burst_size.unwrap_or(rule.max_requests / 10)).unwrap_or(nonzero!(1u32));
+                let quota = Quota::per_second(max_req)
+                    .allow_burst(burst);
 
                 let limiter = Arc::new(RateLimiter::direct(quota));
                 limiters.insert(rule.id.to_string(), limiter);
@@ -469,10 +471,18 @@ impl RateLimitService {
         let window_start = current_time - rule.window_seconds as i64;
 
         // Clean old entries
-        let _: () = conn.zremrangebyscore(key, 0, window_start).await?;
+        redis::cmd("ZREMRANGEBYSCORE")
+            .arg(key)
+            .arg(0)
+            .arg(window_start)
+            .query_async::<_, ()>(&mut conn)
+            .await?;
 
         // Count current requests in window
-        let current_count: u32 = conn.zcard(key).await?;
+        let current_count: u32 = redis::cmd("ZCARD")
+            .arg(key)
+            .query_async(&mut conn)
+            .await?;
 
         let remaining = rule.max_requests.saturating_sub(current_count);
         let reset_time = Utc::now() + Duration::seconds(rule.window_seconds as i64);
@@ -492,8 +502,17 @@ impl RateLimitService {
 
         // Record this request
         let request_id = Uuid::new_v4().to_string();
-        let _: () = conn.zadd(key, current_time, request_id).await?;
-        let _: () = conn.expire(key, rule.window_seconds as usize).await?;
+        redis::cmd("ZADD")
+            .arg(key)
+            .arg(current_time)
+            .arg(&request_id)
+            .query_async::<_, ()>(&mut conn)
+            .await?;
+        redis::cmd("EXPIRE")
+            .arg(key)
+            .arg(rule.window_seconds)
+            .query_async::<_, ()>(&mut conn)
+            .await?;
 
         Ok(RateLimitStatus {
             key: key.to_string(),
@@ -547,20 +566,38 @@ impl RateLimitService {
     async fn execute_rate_limit_action(&self, action: &LimitAction, key: &str, request: &RateLimitRequest, violation: &RateLimitViolation) -> Result<()> {
         match action {
             LimitAction::Block => {
-                // Already handled by returning blocked status
+                // Log the violation with request details
+                info!("Rate limit block executed for {} - path: {}, count: {}",
+                    key, request.path, violation.violation_count);
             },
             LimitAction::Throttle { delay_ms: _ } => {
                 // Delay will be handled by the caller
+                info!("Rate limit throttle applied for {} - path: {}",
+                    key, request.path);
             },
             LimitAction::RequireCaptcha => {
-                // Flag for requiring captcha verification
+                // Flag for requiring captcha verification with request context
                 let mut conn = self.redis.clone();
-                let _: () = conn.setex(format!("captcha_required:{}", key), 3600, "true").await?;
+                redis::cmd("SETEX")
+                    .arg(format!("captcha_required:{}", key))
+                    .arg(3600)
+                    .arg(serde_json::json!({
+                        "path": request.path,
+                        "violation_count": violation.violation_count,
+                        "timestamp": chrono::Utc::now()
+                    }).to_string())
+                    .query_async::<_, ()>(&mut conn)
+                    .await?;
             },
             LimitAction::RequireAuth => {
-                // Flag for requiring authentication
+                // Flag for requiring authentication with violation details
                 let mut conn = self.redis.clone();
-                let _: () = conn.setex(format!("auth_required:{}", key), 3600, "true").await?;
+                redis::cmd("SETEX")
+                    .arg(format!("auth_required:{}", key))
+                    .arg(3600)
+                    .arg("true")
+                    .query_async::<_, ()>(&mut conn)
+                    .await?;
             },
             LimitAction::TemporaryBan { duration_minutes } => {
                 self.block_entity(key, "temporary_ban", &format!("Rate limit exceeded: {}", violation.rule_id), Some(*duration_minutes)).await?;
@@ -605,10 +642,19 @@ impl RateLimitService {
         let serialized = serde_json::to_string(&blocked_entity)?;
 
         if let Some(expires) = expires_at {
-            let duration_seconds = (expires - Utc::now()).num_seconds().max(1) as usize;
-            let _: () = conn.setex(format!("blocked:{}", key), duration_seconds, serialized).await?;
+            let duration_seconds = (expires - Utc::now()).num_seconds().max(1) as u64;
+            redis::cmd("SETEX")
+                .arg(format!("blocked:{}", key))
+                .arg(duration_seconds)
+                .arg(serialized)
+                .query_async::<_, ()>(&mut conn)
+                .await?;
         } else {
-            let _: () = conn.set(format!("blocked:{}", key), serialized).await?;
+            redis::cmd("SET")
+                .arg(format!("blocked:{}", key))
+                .arg(serialized)
+                .query_async::<_, ()>(&mut conn)
+                .await?;
         }
 
         info!("Blocked entity: {} for {} (duration: {:?})", key, reason, duration_minutes);
@@ -771,8 +817,10 @@ impl RateLimitService {
 
         // Initialize limiter if enabled
         if rule.enabled {
-            let quota = Quota::per_second(nonzero!(rule.max_requests))
-                .allow_burst(nonzero!(rule.burst_size.unwrap_or(rule.max_requests / 10)));
+            let max_req = std::num::NonZeroU32::new(rule.max_requests).unwrap_or(nonzero!(1u32));
+            let burst = std::num::NonZeroU32::new(rule.burst_size.unwrap_or(rule.max_requests / 10)).unwrap_or(nonzero!(1u32));
+            let quota = Quota::per_second(max_req)
+                .allow_burst(burst);
 
             let limiter = Arc::new(RateLimiter::direct(quota));
 
@@ -870,4 +918,68 @@ pub struct RateLimitRequest {
     pub api_key: Option<String>,
     pub user_agent: Option<String>,
     pub headers: Option<serde_json::Value>,
+}
+
+impl RateLimitRequest {
+    pub fn new(
+        method: String,
+        path: String,
+        resource: String,
+        ip_address: IpAddr,
+    ) -> Self {
+        Self {
+            method,
+            path,
+            resource,
+            ip_address,
+            user_id: None,
+            api_key: None,
+            user_agent: None,
+            headers: None,
+        }
+    }
+
+    pub fn with_user_id(mut self, user_id: Uuid) -> Self {
+        self.user_id = Some(user_id);
+        self
+    }
+
+    pub fn with_api_key(mut self, api_key: String) -> Self {
+        self.api_key = Some(api_key);
+        self
+    }
+
+    pub fn with_user_agent(mut self, user_agent: String) -> Self {
+        self.user_agent = Some(user_agent);
+        self
+    }
+
+    pub fn with_headers(mut self, headers: serde_json::Value) -> Self {
+        self.headers = Some(headers);
+        self
+    }
+
+    pub fn from_http_request(
+        method: &str,
+        path: &str,
+        ip_address: IpAddr,
+        user_id: Option<Uuid>,
+        api_key: Option<String>,
+        user_agent: Option<String>,
+        headers: Option<serde_json::Value>,
+    ) -> Self {
+        // Determine resource from path
+        let resource = path.split('/').nth(1).unwrap_or("default").to_string();
+
+        Self {
+            method: method.to_string(),
+            path: path.to_string(),
+            resource,
+            ip_address,
+            user_id,
+            api_key,
+            user_agent,
+            headers,
+        }
+    }
 }

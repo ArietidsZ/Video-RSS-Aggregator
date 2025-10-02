@@ -6,12 +6,11 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::collections::HashMap;
-use tracing::{debug, error, info, warn};
+use tracing::info;
 use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
     pub id: Uuid,
     pub email: String,
@@ -47,7 +46,7 @@ pub struct RegisterRequest {
     pub email: String,
 
     #[validate(length(min = 3, max = 50, message = "Username must be 3-50 characters"))]
-    #[validate(regex = "USERNAME_REGEX", message = "Username can only contain alphanumeric characters and underscores")]
+    #[validate(regex(path = "USERNAME_REGEX", message = "Username can only contain alphanumeric characters and underscores"))]
     pub username: String,
 
     #[validate(length(min = 8, message = "Password must be at least 8 characters"))]
@@ -91,7 +90,7 @@ pub struct UserProfile {
     pub last_login: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshToken {
     pub token: String,
     pub user_id: Uuid,
@@ -255,11 +254,11 @@ impl AuthService {
             .context("Registration validation failed")?;
 
         // Check if user already exists
-        let existing_user = sqlx::query!(
-            "SELECT id FROM users WHERE email = $1 OR username = $2",
-            request.email,
-            request.username
+        let existing_user = sqlx::query_scalar::<_, i32>(
+            "SELECT id FROM users WHERE email = $1 OR username = $2"
         )
+        .bind(&request.email)
+        .bind(&request.username)
         .fetch_optional(&self.database)
         .await?;
 
@@ -271,22 +270,20 @@ impl AuthService {
         let salt = SaltString::generate(&mut OsRng);
         let password_hash = self.argon2
             .hash_password(request.password.as_bytes(), &salt)
-            .context("Failed to hash password")?
+            .map_err(|e| anyhow::anyhow!("Failed to hash password: {:?}", e))?
             .to_string();
 
         // Create user
-        let user_id = sqlx::query_scalar!(
-            r#"
-            INSERT INTO users (email, username, password_hash, first_name, last_name)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id
-            "#,
-            request.email,
-            request.username,
-            password_hash,
-            request.first_name,
-            request.last_name
+        let user_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO users (email, username, password_hash, first_name, last_name)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING id"
         )
+        .bind(&request.email)
+        .bind(&request.username)
+        .bind(&password_hash)
+        .bind(&request.first_name)
+        .bind(&request.last_name)
         .fetch_one(&self.database)
         .await
         .context("Failed to create user")?;
@@ -312,17 +309,14 @@ impl AuthService {
             .context("Login validation failed")?;
 
         // Get user by email or username
-        let user = sqlx::query_as!(
-            User,
-            r#"
-            SELECT id, email, username, password_hash, first_name, last_name,
-                   is_active, is_verified, failed_login_attempts, locked_until,
-                   created_at, updated_at, last_login
-            FROM users
-            WHERE email = $1 OR username = $1
-            "#,
-            request.login
+        let user = sqlx::query_as::<_, User>(
+            "SELECT id, email, username, password_hash, first_name, last_name,
+                    is_active, is_verified, failed_login_attempts, locked_until,
+                    created_at, updated_at, last_login
+             FROM users
+             WHERE email = $1 OR username = $1"
         )
+        .bind(&request.login)
         .fetch_optional(&self.database)
         .await?;
 
@@ -334,10 +328,10 @@ impl AuthService {
                 return Err(anyhow::anyhow!("Account is temporarily locked due to too many failed login attempts"));
             } else {
                 // Unlock account
-                sqlx::query!(
-                    "UPDATE users SET locked_until = NULL, failed_login_attempts = 0 WHERE id = $1",
-                    user.id
+                sqlx::query(
+                    "UPDATE users SET locked_until = NULL, failed_login_attempts = 0 WHERE id = $1"
                 )
+                .bind(user.id)
                 .execute(&self.database)
                 .await?;
                 user.locked_until = None;
@@ -352,7 +346,7 @@ impl AuthService {
 
         // Verify password
         let parsed_hash = PasswordHash::new(&user.password_hash)
-            .context("Failed to parse password hash")?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse password hash: {:?}", e))?;
 
         if self.argon2.verify_password(request.password.as_bytes(), &parsed_hash).is_err() {
             // Increment failed login attempts
@@ -363,12 +357,12 @@ impl AuthService {
                 None
             };
 
-            sqlx::query!(
-                "UPDATE users SET failed_login_attempts = $1, locked_until = $2 WHERE id = $3",
-                new_attempts,
-                locked_until,
-                user.id
+            sqlx::query(
+                "UPDATE users SET failed_login_attempts = $1, locked_until = $2 WHERE id = $3"
             )
+            .bind(new_attempts)
+            .bind(locked_until)
+            .bind(user.id)
             .execute(&self.database)
             .await?;
 
@@ -376,10 +370,10 @@ impl AuthService {
         }
 
         // Reset failed login attempts and update last login
-        sqlx::query!(
-            "UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login = NOW() WHERE id = $1",
-            user.id
+        sqlx::query(
+            "UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login = NOW() WHERE id = $1"
         )
+        .bind(user.id)
         .execute(&self.database)
         .await?;
 
@@ -423,31 +417,25 @@ impl AuthService {
             .ok_or_else(|| anyhow::anyhow!("Refresh token is required"))?;
 
         // Validate refresh token
-        let refresh_token = sqlx::query_as!(
-            RefreshToken,
-            r#"
-            SELECT token, user_id, expires_at, created_at, is_revoked
-            FROM refresh_tokens
-            WHERE token = $1 AND is_revoked = false AND expires_at > NOW()
-            "#,
-            refresh_token_str
+        let refresh_token = sqlx::query_as::<_, RefreshToken>(
+            "SELECT token, user_id, expires_at, created_at, is_revoked
+             FROM refresh_tokens
+             WHERE token = $1 AND is_revoked = false AND expires_at > NOW()"
         )
+        .bind(refresh_token_str)
         .fetch_optional(&self.database)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Invalid or expired refresh token"))?;
 
         // Get user
-        let user = sqlx::query_as!(
-            User,
-            r#"
-            SELECT id, email, username, password_hash, first_name, last_name,
-                   is_active, is_verified, failed_login_attempts, locked_until,
-                   created_at, updated_at, last_login
-            FROM users
-            WHERE id = $1 AND is_active = true
-            "#,
-            refresh_token.user_id
+        let user = sqlx::query_as::<_, User>(
+            "SELECT id, email, username, password_hash, first_name, last_name,
+                    is_active, is_verified, failed_login_attempts, locked_until,
+                    created_at, updated_at, last_login
+             FROM users
+             WHERE id = $1 AND is_active = true"
         )
+        .bind(refresh_token.user_id)
         .fetch_optional(&self.database)
         .await?
         .ok_or_else(|| anyhow::anyhow!("User not found or inactive"))?;
@@ -461,10 +449,10 @@ impl AuthService {
         let new_refresh_token = self.generate_refresh_token(&user.id, true).await?;
 
         // Revoke old refresh token
-        sqlx::query!(
-            "UPDATE refresh_tokens SET is_revoked = true, revoked_at = NOW() WHERE token = $1",
-            refresh_token_str
+        sqlx::query(
+            "UPDATE refresh_tokens SET is_revoked = true, revoked_at = NOW() WHERE token = $1"
         )
+        .bind(refresh_token_str)
         .execute(&self.database)
         .await?;
 
@@ -502,28 +490,29 @@ impl AuthService {
         let claims = self.decode_token(token)?;
 
         // Revoke refresh tokens
-        sqlx::query!(
-            "UPDATE refresh_tokens SET is_revoked = true, revoked_at = NOW() WHERE user_id = $1 AND is_revoked = false",
-            Uuid::parse_str(&claims.sub)?
+        sqlx::query(
+            "UPDATE refresh_tokens SET is_revoked = true, revoked_at = NOW() WHERE user_id = $1 AND is_revoked = false"
         )
+        .bind(Uuid::parse_str(&claims.sub)?)
         .execute(&self.database)
         .await?;
 
         // Deactivate session
-        sqlx::query!(
-            "UPDATE user_sessions SET is_active = false WHERE session_token = $1",
-            claims.jti
+        sqlx::query(
+            "UPDATE user_sessions SET is_active = false WHERE session_token = $1"
         )
+        .bind(&claims.jti)
         .execute(&self.database)
         .await?;
 
         // Add token to blacklist in Redis
         let mut conn = self.redis.clone();
-        let _: () = conn.setex(
-            format!("blacklist:{}", claims.jti),
-            self.token_expiry.num_seconds(),
-            "revoked"
-        ).await?;
+        redis::cmd("SETEX")
+            .arg(format!("blacklist:{}", claims.jti))
+            .arg(self.token_expiry.num_seconds())
+            .arg("revoked")
+            .query_async::<_, ()>(&mut conn)
+            .await?;
 
         info!("User logged out successfully: {} ({})", claims.username, claims.sub);
 
@@ -565,39 +554,41 @@ impl AuthService {
         let user_uuid = Uuid::parse_str(user_id)?;
 
         // Get current user
-        let user = sqlx::query!(
-            "SELECT password_hash FROM users WHERE id = $1",
-            user_uuid
+        let user: (String,) = sqlx::query_as(
+            "SELECT password_hash FROM users WHERE id = $1"
         )
+        .bind(user_uuid)
         .fetch_optional(&self.database)
         .await?
         .ok_or_else(|| anyhow::anyhow!("User not found"))?;
 
         // Verify current password
-        let parsed_hash = PasswordHash::new(&user.password_hash)?;
+        let parsed_hash = PasswordHash::new(&user.0)
+            .map_err(|e| anyhow::anyhow!("Failed to parse password hash: {:?}", e))?;
         self.argon2.verify_password(current_password.as_bytes(), &parsed_hash)
             .map_err(|_| anyhow::anyhow!("Current password is incorrect"))?;
 
         // Hash new password
         let salt = SaltString::generate(&mut OsRng);
         let new_password_hash = self.argon2
-            .hash_password(new_password.as_bytes(), &salt)?
+            .hash_password(new_password.as_bytes(), &salt)
+            .map_err(|e| anyhow::anyhow!("Failed to hash password: {:?}", e))?
             .to_string();
 
         // Update password
-        sqlx::query!(
-            "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
-            new_password_hash,
-            user_uuid
+        sqlx::query(
+            "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2"
         )
+        .bind(&new_password_hash)
+        .bind(user_uuid)
         .execute(&self.database)
         .await?;
 
         // Revoke all refresh tokens to force re-authentication
-        sqlx::query!(
-            "UPDATE refresh_tokens SET is_revoked = true, revoked_at = NOW() WHERE user_id = $1",
-            user_uuid
+        sqlx::query(
+            "UPDATE refresh_tokens SET is_revoked = true, revoked_at = NOW() WHERE user_id = $1"
         )
+        .bind(user_uuid)
         .execute(&self.database)
         .await?;
 
@@ -614,10 +605,10 @@ impl AuthService {
             .ok_or_else(|| anyhow::anyhow!("Email is required"))?;
 
         // Check if user exists
-        let user = sqlx::query!(
-            "SELECT id FROM users WHERE email = $1",
-            email
+        let user = sqlx::query_scalar::<_, i32>(
+            "SELECT id FROM users WHERE email = $1"
         )
+        .bind(email)
         .fetch_optional(&self.database)
         .await?;
 
@@ -628,21 +619,19 @@ impl AuthService {
             }));
         }
 
-        let user_id = user.unwrap().id;
+        let user_id = user.unwrap();
 
         // Generate password reset token
         let reset_token = Uuid::new_v4().to_string();
         let expires_at = Utc::now() + Duration::hours(1); // 1 hour expiry
 
-        sqlx::query!(
-            r#"
-            INSERT INTO password_reset_tokens (token, user_id, expires_at)
-            VALUES ($1, $2, $3)
-            "#,
-            reset_token,
-            user_id,
-            expires_at
+        sqlx::query(
+            "INSERT INTO password_reset_tokens (token, user_id, expires_at)
+             VALUES ($1, $2, $3)"
         )
+        .bind(&reset_token)
+        .bind(user_id)
+        .bind(expires_at)
         .execute(&self.database)
         .await?;
 
@@ -668,14 +657,12 @@ impl AuthService {
         validate_password_strength(new_password)?;
 
         // Validate reset token
-        let reset_token = sqlx::query!(
-            r#"
-            SELECT user_id, expires_at, used
-            FROM password_reset_tokens
-            WHERE token = $1 AND expires_at > NOW() AND used = false
-            "#,
-            token
+        let reset_token: (i32, chrono::DateTime<Utc>, bool) = sqlx::query_as(
+            "SELECT user_id, expires_at, used
+             FROM password_reset_tokens
+             WHERE token = $1 AND expires_at > NOW() AND used = false"
         )
+        .bind(token)
         .fetch_optional(&self.database)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Invalid or expired reset token"))?;
@@ -683,38 +670,39 @@ impl AuthService {
         // Hash new password
         let salt = SaltString::generate(&mut OsRng);
         let password_hash = self.argon2
-            .hash_password(new_password.as_bytes(), &salt)?
+            .hash_password(new_password.as_bytes(), &salt)
+            .map_err(|e| anyhow::anyhow!("Failed to hash password: {:?}", e))?
             .to_string();
 
         // Update password and mark token as used
         let mut tx = self.database.begin().await?;
 
-        sqlx::query!(
-            "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
-            password_hash,
-            reset_token.user_id
+        sqlx::query(
+            "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2"
         )
+        .bind(&password_hash)
+        .bind(reset_token.0)
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query!(
-            "UPDATE password_reset_tokens SET used = true, used_at = NOW() WHERE token = $1",
-            token
+        sqlx::query(
+            "UPDATE password_reset_tokens SET used = true, used_at = NOW() WHERE token = $1"
         )
+        .bind(token)
         .execute(&mut *tx)
         .await?;
 
         // Revoke all refresh tokens
-        sqlx::query!(
-            "UPDATE refresh_tokens SET is_revoked = true, revoked_at = NOW() WHERE user_id = $1",
-            reset_token.user_id
+        sqlx::query(
+            "UPDATE refresh_tokens SET is_revoked = true, revoked_at = NOW() WHERE user_id = $1"
         )
+        .bind(reset_token.0)
         .execute(&mut *tx)
         .await?;
 
         tx.commit().await?;
 
-        info!("Password reset successfully for user: {}", reset_token.user_id);
+        info!("Password reset successfully for user: {}", reset_token.0);
 
         Ok(serde_json::json!({
             "message": "Password reset successfully"
@@ -722,9 +710,39 @@ impl AuthService {
     }
 
     async fn get_user_roles_and_permissions(&self, user_id: &Uuid) -> Result<(Vec<String>, Vec<String>)> {
-        // This will be implemented when RBAC service is created
-        // For now, return default user role
-        Ok((vec!["user".to_string()], vec!["read:own".to_string()]))
+        // Fetch user roles from database
+        let roles = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT r.name
+            FROM roles r
+            JOIN user_roles ur ON r.id = ur.role_id
+            WHERE ur.user_id = $1
+            AND ur.is_active = true
+            AND (ur.expires_at IS NULL OR ur.expires_at > NOW())"
+        )
+        .bind(user_id)
+        .fetch_all(&self.database)
+        .await?;
+
+        // Fetch user permissions from database
+        let permissions = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT p.name
+            FROM permissions p
+            JOIN role_permissions rp ON p.id = rp.permission_id
+            JOIN user_roles ur ON rp.role_id = ur.role_id
+            WHERE ur.user_id = $1
+            AND ur.is_active = true
+            AND (ur.expires_at IS NULL OR ur.expires_at > NOW())"
+        )
+        .bind(user_id)
+        .fetch_all(&self.database)
+        .await?;
+
+        // If no roles found, return default user role
+        if roles.is_empty() {
+            return Ok((vec!["user".to_string()], vec!["read:own".to_string()]));
+        }
+
+        Ok((roles, permissions))
     }
 
     fn generate_access_token(
@@ -765,15 +783,13 @@ impl AuthService {
             Utc::now() + self.refresh_token_expiry
         };
 
-        sqlx::query!(
-            r#"
-            INSERT INTO refresh_tokens (token, user_id, expires_at)
-            VALUES ($1, $2, $3)
-            "#,
-            token,
-            user_id,
-            expires_at
+        sqlx::query(
+            "INSERT INTO refresh_tokens (token, user_id, expires_at)
+             VALUES ($1, $2, $3)"
         )
+        .bind(&token)
+        .bind(user_id)
+        .bind(expires_at)
         .execute(&self.database)
         .await?;
 
@@ -787,25 +803,28 @@ impl AuthService {
     }
 
     async fn store_user_session(&self, user_id: &Uuid, session_id: &str, token: &str) -> Result<()> {
-        sqlx::query!(
-            r#"
-            INSERT INTO user_sessions (user_id, session_token, expires_at)
-            VALUES ($1, $2, $3)
-            "#,
-            user_id,
-            session_id,
-            Utc::now() + self.token_expiry
+        sqlx::query(
+            "INSERT INTO user_sessions (user_id, session_token, jwt_token, expires_at)
+             VALUES ($1, $2, $3, $4)"
         )
+        .bind(user_id)
+        .bind(session_id)
+        .bind(token)
+        .bind(Utc::now() + self.token_expiry)
         .execute(&self.database)
         .await?;
 
-        // Also store in Redis for fast lookups
+        // Also store in Redis for fast lookups (both session ID and JWT token)
         let mut conn = self.redis.clone();
-        let _: () = conn.setex(
-            format!("session:{}", session_id),
-            self.token_expiry.num_seconds(),
-            user_id.to_string()
-        ).await?;
+        redis::cmd("SETEX")
+            .arg(format!("session:{}", session_id))
+            .arg(self.token_expiry.num_seconds())
+            .arg(serde_json::json!({
+                "user_id": user_id.to_string(),
+                "token": token
+            }).to_string())
+            .query_async::<_, ()>(&mut conn)
+            .await?;
 
         Ok(())
     }
@@ -845,12 +864,88 @@ impl AuthService {
 
         // Store verification token (in production, use a proper verification system)
         let mut conn = self.redis.clone();
-        let _: () = conn.setex(
-            format!("verify:{}", token),
-            86400, // 24 hours
-            user_id.to_string()
-        ).await?;
+        redis::cmd("SETEX")
+            .arg(format!("verify:{}", token))
+            .arg(86400) // 24 hours
+            .arg(user_id.to_string())
+            .query_async::<_, ()>(&mut conn)
+            .await?;
 
         Ok(token)
+    }
+
+    pub fn encrypt_sensitive_data(&self, data: &str) -> Result<String> {
+        use aes_gcm::{
+            aead::{Aead, KeyInit},
+            Aes256Gcm, Nonce,
+        };
+        use base64::{Engine as _, engine::general_purpose};
+
+        // Derive a 32-byte key from encryption_key
+        let key_bytes = self.derive_encryption_key()?;
+        let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+            .context("Failed to create cipher")?;
+
+        // Generate random nonce
+        let nonce_bytes = rand::random::<[u8; 12]>();
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        // Encrypt data
+        let ciphertext = cipher
+            .encrypt(nonce, data.as_bytes())
+            .map_err(|e| anyhow::anyhow!("Encryption failed: {}", e))?;
+
+        // Combine nonce + ciphertext and encode as base64
+        let mut combined = nonce_bytes.to_vec();
+        combined.extend_from_slice(&ciphertext);
+
+        Ok(general_purpose::STANDARD.encode(combined))
+    }
+
+    pub fn decrypt_sensitive_data(&self, encrypted_data: &str) -> Result<String> {
+        use aes_gcm::{
+            aead::{Aead, KeyInit},
+            Aes256Gcm, Nonce,
+        };
+        use base64::{Engine as _, engine::general_purpose};
+
+        // Decode from base64
+        let combined = general_purpose::STANDARD
+            .decode(encrypted_data)
+            .context("Failed to decode base64")?;
+
+        if combined.len() < 12 {
+            return Err(anyhow::anyhow!("Invalid encrypted data"));
+        }
+
+        // Split nonce and ciphertext
+        let (nonce_bytes, ciphertext) = combined.split_at(12);
+        let nonce = Nonce::from_slice(nonce_bytes);
+
+        // Derive key and create cipher
+        let key_bytes = self.derive_encryption_key()?;
+        let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+            .context("Failed to create cipher")?;
+
+        // Decrypt
+        let plaintext = cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| anyhow::anyhow!("Decryption failed: {}", e))?;
+
+        String::from_utf8(plaintext).context("Failed to convert decrypted data to UTF-8")
+    }
+
+    fn derive_encryption_key(&self) -> Result<[u8; 32]> {
+        use sha2::{Sha256, Digest};
+
+        // Use SHA-256 to derive a 32-byte key from encryption_key
+        let mut hasher = Sha256::new();
+        hasher.update(self.encryption_key.as_bytes());
+        let result = hasher.finalize();
+
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&result[..]);
+
+        Ok(key)
     }
 }

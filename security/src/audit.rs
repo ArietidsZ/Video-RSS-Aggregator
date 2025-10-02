@@ -37,7 +37,9 @@ pub enum AuditEventType {
     DataModification,
     SystemAccess,
     SecurityEvent,
+    SecurityIncident,
     AdminAction,
+    ApiAccess,
     APIAccess,
     FileAccess,
     ConfigurationChange,
@@ -275,34 +277,32 @@ impl AuditService {
         let mut tx = self.database.begin().await?;
 
         for event in events {
-            sqlx::query!(
-                r#"
-                INSERT INTO audit_events (
-                    id, event_type, user_id, session_id, ip_address, user_agent,
-                    resource, action, details, result, severity, timestamp,
-                    request_id, endpoint, method, status_code, response_time_ms, error_message
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-                "#,
-                event.id,
-                format!("{:?}", event.event_type),
-                event.user_id,
-                event.session_id,
-                event.ip_address.map(|ip| ip.to_string()),
-                event.user_agent,
-                event.resource,
-                event.action,
-                event.details,
-                format!("{:?}", event.result),
-                format!("{:?}", event.severity),
-                event.timestamp,
-                event.request_id,
-                event.endpoint,
-                event.method,
-                event.status_code.map(|sc| sc as i32),
-                event.response_time_ms.map(|rt| rt as i64),
-                event.error_message
+            sqlx::query(
+                "INSERT INTO audit_events (
+                     id, event_type, user_id, session_id, ip_address, user_agent,
+                     resource, action, details, result, severity, timestamp,
+                     request_id, endpoint, method, status_code, response_time_ms, error_message
+                 )
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)"
             )
+            .bind(&event.id)
+            .bind(format!("{:?}", event.event_type))
+            .bind(&event.user_id)
+            .bind(&event.session_id)
+            .bind(event.ip_address.map(|ip| ip.to_string()))
+            .bind(&event.user_agent)
+            .bind(&event.resource)
+            .bind(&event.action)
+            .bind(&event.details)
+            .bind(format!("{:?}", event.result))
+            .bind(format!("{:?}", event.severity))
+            .bind(event.timestamp)
+            .bind(&event.request_id)
+            .bind(&event.endpoint)
+            .bind(&event.method)
+            .bind(event.status_code.map(|sc| sc as i32))
+            .bind(event.response_time_ms.map(|rt| rt as i64))
+            .bind(&event.error_message)
             .execute(&mut *tx)
             .await?;
         }
@@ -331,7 +331,7 @@ impl AuditService {
             resource: "authentication".to_string(),
             action: action.to_string(),
             details,
-            result,
+            result: result.clone(),
             severity: match result {
                 AuditResult::Failure => AuditSeverity::Medium,
                 AuditResult::Blocked => AuditSeverity::High,
@@ -367,7 +367,7 @@ impl AuditService {
             resource: resource.to_string(),
             action: action.to_string(),
             details,
-            result,
+            result: result.clone(),
             severity: match result {
                 AuditResult::Failure | AuditResult::Blocked => AuditSeverity::Medium,
                 _ => AuditSeverity::Low,
@@ -436,7 +436,7 @@ impl AuditService {
             action: action.to_string(),
             details,
             result: AuditResult::Warning,
-            severity,
+            severity: severity.clone(),
             timestamp: Utc::now(),
             request_id: None,
             endpoint: None,
@@ -446,12 +446,12 @@ impl AuditService {
             error_message: None,
         };
 
-        self.log_event(event).await?;
-
-        // Create security incident for high/critical events
+        // Create security incident for high/critical events before logging
         if matches!(severity, AuditSeverity::High | AuditSeverity::Critical) {
             self.create_security_incident(&event).await?;
         }
+
+        self.log_event(event).await?;
 
         Ok(())
     }
@@ -460,23 +460,21 @@ impl AuditService {
         let title = format!("{:?}: {} on {}", event.event_type, event.action, event.resource);
         let description = format!("Security event detected: {:?}", event.details);
 
-        sqlx::query!(
-            r#"
-            INSERT INTO security_incidents (
-                incident_type, severity, title, description, source_ip,
-                affected_user_id, detection_method, related_events
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            "#,
-            format!("{:?}", event.event_type),
-            format!("{:?}", event.severity),
-            title,
-            description,
-            event.ip_address.map(|ip| ip.to_string()),
-            event.user_id,
-            "audit_system",
-            serde_json::json!([event.id])
+        sqlx::query(
+            "INSERT INTO security_incidents (
+                 incident_type, severity, title, description, source_ip,
+                 affected_user_id, detection_method, related_events
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
         )
+        .bind(format!("{:?}", event.event_type))
+        .bind(format!("{:?}", event.severity))
+        .bind(title)
+        .bind(description)
+        .bind(event.ip_address.map(|ip| ip.to_string()))
+        .bind(event.user_id)
+        .bind("audit_system")
+        .bind(serde_json::json!([event.id]))
         .execute(&self.database)
         .await?;
 
@@ -549,33 +547,31 @@ impl AuditService {
 
         // For simplicity, returning a mock response
         // In a real implementation, you'd execute the dynamic query
-        let events = sqlx::query!(
-            r#"
-            SELECT id, event_type, user_id, ip_address, resource, action,
-                   details, result, severity, timestamp
-            FROM audit_events
-            ORDER BY timestamp DESC
-            LIMIT $1 OFFSET $2
-            "#,
-            limit,
-            offset
+        let events: Vec<(String, String, Option<String>, Option<String>, String, String, serde_json::Value, String, String, chrono::DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, event_type, user_id, ip_address, resource, action,
+                    details, result, severity, timestamp
+             FROM audit_events
+             ORDER BY timestamp DESC
+             LIMIT $1 OFFSET $2"
         )
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&self.database)
         .await?;
 
         let audit_events: Vec<serde_json::Value> = events
             .into_iter()
             .map(|e| serde_json::json!({
-                "id": e.id,
-                "event_type": e.event_type,
-                "user_id": e.user_id,
-                "ip_address": e.ip_address,
-                "resource": e.resource,
-                "action": e.action,
-                "details": e.details,
-                "result": e.result,
-                "severity": e.severity,
-                "timestamp": e.timestamp
+                "id": e.0,
+                "event_type": e.1,
+                "user_id": e.2,
+                "ip_address": e.3,
+                "resource": e.4,
+                "action": e.5,
+                "details": e.6,
+                "result": e.7,
+                "severity": e.8,
+                "timestamp": e.9
             }))
             .collect();
 
@@ -611,89 +607,77 @@ impl AuditService {
         let twenty_four_hours_ago = Utc::now() - chrono::Duration::hours(24);
 
         // Failed logins last hour
-        let failed_logins_1h = sqlx::query_scalar!(
-            r#"
-            SELECT COUNT(*)::INTEGER
-            FROM audit_events
-            WHERE event_type = 'Authentication'
-            AND action = 'login'
-            AND result = 'Failure'
-            AND timestamp > $1
-            "#,
-            one_hour_ago
+        let failed_logins_1h = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT COUNT(*)::INTEGER
+             FROM audit_events
+             WHERE event_type = 'Authentication'
+             AND action = 'login'
+             AND result = 'Failure'
+             AND timestamp > $1"
         )
+        .bind(one_hour_ago)
         .fetch_one(&self.database)
         .await?
         .unwrap_or(0) as u32;
 
         // Failed logins last 24 hours
-        let failed_logins_24h = sqlx::query_scalar!(
-            r#"
-            SELECT COUNT(*)::INTEGER
-            FROM audit_events
-            WHERE event_type = 'Authentication'
-            AND action = 'login'
-            AND result = 'Failure'
-            AND timestamp > $1
-            "#,
-            twenty_four_hours_ago
+        let failed_logins_24h = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT COUNT(*)::INTEGER
+             FROM audit_events
+             WHERE event_type = 'Authentication'
+             AND action = 'login'
+             AND result = 'Failure'
+             AND timestamp > $1"
         )
+        .bind(twenty_four_hours_ago)
         .fetch_one(&self.database)
         .await?
         .unwrap_or(0) as u32;
 
         // Suspicious activities last hour
-        let suspicious_activities_1h = sqlx::query_scalar!(
-            r#"
-            SELECT COUNT(*)::INTEGER
-            FROM audit_events
-            WHERE event_type = 'SuspiciousActivity'
-            AND timestamp > $1
-            "#,
-            one_hour_ago
+        let suspicious_activities_1h = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT COUNT(*)::INTEGER
+             FROM audit_events
+             WHERE event_type = 'SuspiciousActivity'
+             AND timestamp > $1"
         )
+        .bind(one_hour_ago)
         .fetch_one(&self.database)
         .await?
         .unwrap_or(0) as u32;
 
         // Rate limit violations last hour
-        let rate_limit_violations_1h = sqlx::query_scalar!(
-            r#"
-            SELECT COUNT(*)::INTEGER
-            FROM audit_events
-            WHERE event_type = 'RateLimitViolation'
-            AND timestamp > $1
-            "#,
-            one_hour_ago
+        let rate_limit_violations_1h = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT COUNT(*)::INTEGER
+             FROM audit_events
+             WHERE event_type = 'RateLimitViolation'
+             AND timestamp > $1"
         )
+        .bind(one_hour_ago)
         .fetch_one(&self.database)
         .await?
         .unwrap_or(0) as u32;
 
         // API requests last hour
-        let api_requests_1h = sqlx::query_scalar!(
-            r#"
-            SELECT COUNT(*)::INTEGER
-            FROM audit_events
-            WHERE event_type = 'APIAccess'
-            AND timestamp > $1
-            "#,
-            one_hour_ago
+        let api_requests_1h = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT COUNT(*)::INTEGER
+             FROM audit_events
+             WHERE event_type = 'APIAccess'
+             AND timestamp > $1"
         )
+        .bind(one_hour_ago)
         .fetch_one(&self.database)
         .await?
         .unwrap_or(0) as u32;
 
         // Unique users last 24 hours
-        let unique_users_24h = sqlx::query_scalar!(
-            r#"
-            SELECT COUNT(DISTINCT user_id)::INTEGER
-            FROM audit_events
-            WHERE user_id IS NOT NULL
-            AND timestamp > $1
-            "#,
-            twenty_four_hours_ago
+        let unique_users_24h = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT COUNT(DISTINCT user_id)::INTEGER
+             FROM audit_events
+             WHERE user_id IS NOT NULL
+             AND timestamp > $1"
         )
+        .bind(twenty_four_hours_ago)
         .fetch_one(&self.database)
         .await?
         .unwrap_or(0) as u32;
@@ -705,38 +689,100 @@ impl AuditService {
             0.0
         };
 
+        // Calculate top error endpoints
+        let top_error_endpoints: Vec<(String, u32)> = sqlx::query_as(
+            "SELECT endpoint, COUNT(*) as count
+             FROM audit_events
+             WHERE result = 'Failure'
+             AND timestamp > $1
+             AND endpoint IS NOT NULL
+             GROUP BY endpoint
+             ORDER BY count DESC
+             LIMIT 10"
+        )
+        .bind(one_hour_ago)
+        .fetch_all(&self.database)
+        .await?
+        .into_iter()
+        .map(|(endpoint, count): (String, i64)| (endpoint, count as u32))
+        .collect();
+
+        // Calculate top attacking IPs
+        let top_attacking_ips: Vec<(String, u32)> = sqlx::query_as(
+            "SELECT ip_address, COUNT(*) as count
+             FROM audit_events
+             WHERE result = 'Failure'
+             AND timestamp > $1
+             AND ip_address IS NOT NULL
+             AND (event_type = 'ApiAccess' OR event_type = 'Authentication')
+             GROUP BY ip_address
+             ORDER BY count DESC
+             LIMIT 10"
+        )
+        .bind(one_hour_ago)
+        .fetch_all(&self.database)
+        .await?
+        .into_iter()
+        .map(|(ip, count): (String, i64)| (ip, count as u32))
+        .collect();
+
+        // Count blocked IPs from recent rate limit violations
+        let blocked_ips_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(DISTINCT ip_address)
+             FROM audit_events
+             WHERE event_type = 'RateLimitViolation'
+             AND timestamp > $1"
+        )
+        .bind(one_hour_ago)
+        .fetch_one(&self.database)
+        .await? as u32;
+
+        // Count active sessions
+        let active_sessions_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(DISTINCT session_id)
+             FROM audit_events
+             WHERE session_id IS NOT NULL
+             AND timestamp > $1"
+        )
+        .bind(one_hour_ago)
+        .fetch_one(&self.database)
+        .await? as u32;
+
+        // Geographic distribution (simplified - based on IP prefixes)
+        let geographic_distribution = HashMap::new(); // Would require IP geolocation database
+
         Ok(SecurityMetrics {
             failed_logins_last_hour: failed_logins_1h,
             failed_logins_last_24h: failed_logins_24h,
             suspicious_activities_last_hour: suspicious_activities_1h,
             rate_limit_violations_last_hour: rate_limit_violations_1h,
-            blocked_ips_count: 0, // Would be calculated from rate limiting service
-            active_sessions_count: 0, // Would be calculated from session store
+            blocked_ips_count,
+            active_sessions_count,
             unique_users_last_24h: unique_users_24h,
             api_requests_last_hour: api_requests_1h,
             error_rate_last_hour: error_rate_1h,
-            top_error_endpoints: vec![], // Would be calculated from error logs
-            top_attacking_ips: vec![], // Would be calculated from failed attempts
-            geographic_distribution: HashMap::new(), // Would be calculated from IP geolocation
+            top_error_endpoints,
+            top_attacking_ips,
+            geographic_distribution,
         })
     }
 
     pub async fn cleanup_old_events(&self) -> Result<()> {
         // Get retention policies
-        let retention_policies = sqlx::query!(
+        let retention_policies = sqlx::query_as::<_, (String, i32)>(
             "SELECT event_type, retention_days FROM audit_retention_policies"
         )
         .fetch_all(&self.database)
         .await?;
 
         for policy in retention_policies {
-            let cutoff_date = Utc::now() - chrono::Duration::days(policy.retention_days as i64);
+            let cutoff_date = Utc::now() - chrono::Duration::days(policy.1 as i64);
 
-            let deleted_count = sqlx::query!(
-                "DELETE FROM audit_events WHERE event_type = $1 AND timestamp < $2",
-                policy.event_type,
-                cutoff_date
+            let deleted_count = sqlx::query(
+                "DELETE FROM audit_events WHERE event_type = $1 AND timestamp < $2"
             )
+            .bind(&policy.0)
+            .bind(cutoff_date)
             .execute(&self.database)
             .await?
             .rows_affected();
@@ -744,7 +790,7 @@ impl AuditService {
             if deleted_count > 0 {
                 info!(
                     "Cleaned up {} old audit events of type {}",
-                    deleted_count, policy.event_type
+                    deleted_count, policy.0
                 );
             }
         }
@@ -752,80 +798,265 @@ impl AuditService {
         Ok(())
     }
 
+    async fn get_events(&self, filter: AuditFilter) -> Result<Vec<AuditEvent>> {
+        let mut query = sqlx::QueryBuilder::new(
+            "SELECT id, event_type, user_id, session_id, ip_address, user_agent,
+                    resource, action, details, result, severity, timestamp,
+                    request_id, endpoint, method, status_code, response_time_ms, error_message
+             FROM audit_events WHERE 1=1"
+        );
+
+        // Apply filters dynamically
+        if let Some(user_id) = filter.user_id {
+            query.push(" AND user_id = ");
+            query.push_bind(user_id);
+        }
+
+        if let Some(resource) = filter.resource {
+            query.push(" AND resource = ");
+            query.push_bind(resource);
+        }
+
+        if let Some(action) = filter.action {
+            query.push(" AND action = ");
+            query.push_bind(action);
+        }
+
+        if let Some(start_time) = filter.start_time {
+            query.push(" AND timestamp >= ");
+            query.push_bind(start_time);
+        }
+
+        if let Some(end_time) = filter.end_time {
+            query.push(" AND timestamp <= ");
+            query.push_bind(end_time);
+        }
+
+        if let Some(ip_address) = filter.ip_address {
+            query.push(" AND ip_address = ");
+            query.push_bind(ip_address.to_string());
+        }
+
+        query.push(" ORDER BY timestamp DESC LIMIT ");
+        query.push_bind(filter.limit.unwrap_or(100) as i64);
+
+        if let Some(offset) = filter.offset {
+            query.push(" OFFSET ");
+            query.push_bind(offset as i64);
+        }
+
+        // Execute query and parse results
+        let rows = query.build()
+            .fetch_all(&self.database)
+            .await?;
+
+        let mut events = Vec::new();
+        for row in rows {
+            use sqlx::Row;
+            let event = AuditEvent {
+                id: row.get("id"),
+                event_type: self.parse_event_type(row.get("event_type")),
+                user_id: row.get("user_id"),
+                session_id: row.get("session_id"),
+                ip_address: row.get::<Option<String>, _>("ip_address")
+                    .and_then(|s| s.parse().ok()),
+                user_agent: row.get("user_agent"),
+                resource: row.get("resource"),
+                action: row.get("action"),
+                details: row.get("details"),
+                result: self.parse_result(row.get("result")),
+                severity: self.parse_severity(row.get("severity")),
+                timestamp: row.get("timestamp"),
+                request_id: row.get("request_id"),
+                endpoint: row.get("endpoint"),
+                method: row.get("method"),
+                status_code: row.get::<Option<i32>, _>("status_code").map(|s| s as u16),
+                response_time_ms: row.get::<Option<i64>, _>("response_time_ms").map(|r| r as u64),
+                error_message: row.get("error_message"),
+            };
+            events.push(event);
+        }
+
+        Ok(events)
+    }
+
+    fn parse_event_type(&self, s: String) -> AuditEventType {
+        match s.as_str() {
+            "Authentication" => AuditEventType::Authentication,
+            "Authorization" => AuditEventType::Authorization,
+            "DataAccess" => AuditEventType::DataAccess,
+            "DataModification" => AuditEventType::DataModification,
+            "UserManagement" => AuditEventType::UserManagement,
+            "RoleManagement" => AuditEventType::RoleManagement,
+            "ConfigurationChange" => AuditEventType::ConfigurationChange,
+            "ApiAccess" => AuditEventType::ApiAccess,
+            "SecurityIncident" => AuditEventType::SecurityIncident,
+            "RateLimitViolation" => AuditEventType::RateLimitViolation,
+            "ValidationFailure" => AuditEventType::ValidationFailure,
+            _ => AuditEventType::SystemError,
+        }
+    }
+
+    fn parse_result(&self, s: String) -> AuditResult {
+        match s.as_str() {
+            "Success" => AuditResult::Success,
+            "Failure" => AuditResult::Failure,
+            "Partial" => AuditResult::Partial,
+            "Blocked" => AuditResult::Blocked,
+            _ => AuditResult::Warning,
+        }
+    }
+
+    fn parse_severity(&self, s: String) -> AuditSeverity {
+        match s.as_str() {
+            "Low" => AuditSeverity::Low,
+            "Medium" => AuditSeverity::Medium,
+            "High" => AuditSeverity::High,
+            _ => AuditSeverity::Critical,
+        }
+    }
+
     pub async fn export_audit_logs(
         &self,
         filter: AuditFilter,
         format: &str,
     ) -> Result<Vec<u8>> {
-        // This would implement export functionality
-        // For now, just return empty data
+        // Fetch events based on filter
+        let events = self.get_events(filter).await?;
+
         match format {
-            "csv" => Ok(b"id,timestamp,event_type,user_id,action,result\n".to_vec()),
-            "json" => Ok(b"[]".to_vec()),
-            _ => Err(anyhow::anyhow!("Unsupported export format")),
+            "csv" => self.export_as_csv(&events),
+            "json" => self.export_as_json(&events),
+            "xml" => self.export_as_xml(&events),
+            _ => Err(anyhow::anyhow!("Unsupported export format: {}", format)),
         }
     }
 
-    pub async fn search_events(&self, query: &str, limit: u32) -> Result<Vec<AuditEvent>> {
-        // Simple text search - in production, this would use full-text search
-        let events = sqlx::query!(
-            r#"
-            SELECT id, event_type, user_id, session_id, ip_address, user_agent,
-                   resource, action, details, result, severity, timestamp,
-                   request_id, endpoint, method, status_code, response_time_ms, error_message
-            FROM audit_events
-            WHERE resource ILIKE $1 OR action ILIKE $1 OR error_message ILIKE $1
-            ORDER BY timestamp DESC
-            LIMIT $2
-            "#,
-            format!("%{}%", query),
-            limit as i64
-        )
-        .fetch_all(&self.database)
-        .await?;
+    fn export_as_csv(&self, events: &[AuditEvent]) -> Result<Vec<u8>> {
+        let mut csv = String::from("id,timestamp,event_type,user_id,session_id,ip_address,resource,action,result,severity,endpoint,method,status_code,response_time_ms,error_message\n");
 
-        // Convert to AuditEvent structs (simplified for now)
-        let mut result = Vec::new();
         for event in events {
-            // This would properly parse all fields
-            result.push(AuditEvent {
-                id: event.id,
-                event_type: AuditEventType::DataAccess, // Would parse from string
-                user_id: event.user_id,
-                session_id: event.session_id,
-                ip_address: event.ip_address.and_then(|ip| ip.parse().ok()),
-                user_agent: event.user_agent,
-                resource: event.resource,
-                action: event.action,
-                details: event.details,
-                result: AuditResult::Success, // Would parse from string
-                severity: AuditSeverity::Low, // Would parse from string
-                timestamp: event.timestamp,
-                request_id: event.request_id,
-                endpoint: event.endpoint,
-                method: event.method,
-                status_code: event.status_code.map(|sc| sc as u16),
-                response_time_ms: event.response_time_ms.map(|rt| rt as u64),
-                error_message: event.error_message,
-            });
+            csv.push_str(&format!(
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+                event.id,
+                event.timestamp.to_rfc3339(),
+                format!("{:?}", event.event_type),
+                event.user_id.map(|id| id.to_string()).unwrap_or_default(),
+                event.session_id.clone().unwrap_or_default(),
+                event.ip_address.map(|ip| ip.to_string()).unwrap_or_default(),
+                event.resource,
+                event.action,
+                format!("{:?}", event.result),
+                format!("{:?}", event.severity),
+                event.endpoint.clone().unwrap_or_default(),
+                event.method.clone().unwrap_or_default(),
+                event.status_code.map(|s| s.to_string()).unwrap_or_default(),
+                event.response_time_ms.map(|t| t.to_string()).unwrap_or_default(),
+                event.error_message.clone().unwrap_or_default().replace(",", ";")
+            ));
         }
 
-        Ok(result)
+        Ok(csv.into_bytes())
+    }
+
+    fn export_as_json(&self, events: &[AuditEvent]) -> Result<Vec<u8>> {
+        let json = serde_json::to_string_pretty(events)?;
+        Ok(json.into_bytes())
+    }
+
+    fn export_as_xml(&self, events: &[AuditEvent]) -> Result<Vec<u8>> {
+        let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<audit_events>\n");
+
+        for event in events {
+            xml.push_str("  <event>\n");
+            xml.push_str(&format!("    <id>{}</id>\n", event.id));
+            xml.push_str(&format!("    <timestamp>{}</timestamp>\n", event.timestamp.to_rfc3339()));
+            xml.push_str(&format!("    <event_type>{:?}</event_type>\n", event.event_type));
+            if let Some(user_id) = event.user_id {
+                xml.push_str(&format!("    <user_id>{}</user_id>\n", user_id));
+            }
+            xml.push_str(&format!("    <resource>{}</resource>\n", event.resource));
+            xml.push_str(&format!("    <action>{}</action>\n", event.action));
+            xml.push_str(&format!("    <result>{:?}</result>\n", event.result));
+            xml.push_str(&format!("    <severity>{:?}</severity>\n", event.severity));
+            if let Some(endpoint) = &event.endpoint {
+                xml.push_str(&format!("    <endpoint>{}</endpoint>\n", endpoint));
+            }
+            if let Some(method) = &event.method {
+                xml.push_str(&format!("    <method>{}</method>\n", method));
+            }
+            if let Some(status_code) = event.status_code {
+                xml.push_str(&format!("    <status_code>{}</status_code>\n", status_code));
+            }
+            xml.push_str("  </event>\n");
+        }
+
+        xml.push_str("</audit_events>\n");
+        Ok(xml.into_bytes())
+    }
+
+    pub async fn search_events(&self, query: &str, limit: u32) -> Result<Vec<AuditEvent>> {
+        // Text search across resource, action, and error_message fields
+        let search_pattern = format!("%{}%", query);
+
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "SELECT id, event_type, user_id, session_id, ip_address, user_agent,
+                    resource, action, details, result, severity, timestamp,
+                    request_id, endpoint, method, status_code, response_time_ms, error_message
+             FROM audit_events
+             WHERE resource ILIKE "
+        );
+        query_builder.push_bind(&search_pattern);
+        query_builder.push(" OR action ILIKE ");
+        query_builder.push_bind(&search_pattern);
+        query_builder.push(" OR error_message ILIKE ");
+        query_builder.push_bind(&search_pattern);
+        query_builder.push(" ORDER BY timestamp DESC LIMIT ");
+        query_builder.push_bind(limit as i64);
+
+        let rows = query_builder.build().fetch_all(&self.database).await?;
+
+        let mut events = Vec::new();
+        for row in rows {
+            use sqlx::Row;
+            let event = AuditEvent {
+                id: row.get("id"),
+                event_type: self.parse_event_type(row.get("event_type")),
+                user_id: row.get("user_id"),
+                session_id: row.get("session_id"),
+                ip_address: row.get::<Option<String>, _>("ip_address")
+                    .and_then(|s| s.parse().ok()),
+                user_agent: row.get("user_agent"),
+                resource: row.get("resource"),
+                action: row.get("action"),
+                details: row.get("details"),
+                result: self.parse_result(row.get("result")),
+                severity: self.parse_severity(row.get("severity")),
+                timestamp: row.get("timestamp"),
+                request_id: row.get("request_id"),
+                endpoint: row.get("endpoint"),
+                method: row.get("method"),
+                status_code: row.get::<Option<i32>, _>("status_code").map(|s| s as u16),
+                response_time_ms: row.get::<Option<i64>, _>("response_time_ms").map(|r| r as u64),
+                error_message: row.get("error_message"),
+            };
+            events.push(event);
+        }
+
+        Ok(events)
     }
 
     pub async fn get_security_dashboard_data(&self) -> Result<serde_json::Value> {
         let metrics = self.calculate_security_metrics().await?;
 
         // Get recent critical events
-        let critical_events = sqlx::query!(
-            r#"
-            SELECT id, event_type, resource, action, timestamp, details
+        let critical_events = sqlx::query_as::<_, (i32, String, Option<String>, Option<String>, chrono::DateTime<Utc>, Option<serde_json::Value>)>(
+            "SELECT id, event_type, resource, action, timestamp, details
             FROM audit_events
             WHERE severity = 'Critical'
             AND timestamp > NOW() - INTERVAL '24 hours'
             ORDER BY timestamp DESC
-            LIMIT 10
-            "#
+            LIMIT 10"
         )
         .fetch_all(&self.database)
         .await?;
@@ -833,12 +1064,12 @@ impl AuditService {
         let critical_events_json: Vec<serde_json::Value> = critical_events
             .into_iter()
             .map(|e| serde_json::json!({
-                "id": e.id,
-                "event_type": e.event_type,
-                "resource": e.resource,
-                "action": e.action,
-                "timestamp": e.timestamp,
-                "details": e.details
+                "id": e.0,
+                "event_type": e.1,
+                "resource": e.2,
+                "action": e.3,
+                "timestamp": e.4,
+                "details": e.5
             }))
             .collect();
 

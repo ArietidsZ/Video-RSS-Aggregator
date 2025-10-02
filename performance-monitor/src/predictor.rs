@@ -154,7 +154,7 @@ impl ScalingPredictor {
     }
 
     async fn get_monitored_components(&self) -> Result<Vec<String>> {
-        let components = sqlx::query_scalar!(
+        let components = sqlx::query_scalar::<_, Option<String>>(
             "SELECT DISTINCT component FROM performance_metrics WHERE timestamp > NOW() - INTERVAL '1 hour'"
         )
         .fetch_all(&self.database)
@@ -183,30 +183,28 @@ impl ScalingPredictor {
     async fn get_component_metrics(&self, component: &str) -> Result<HashMap<String, MetricHistory>> {
         let mut metrics = HashMap::new();
 
-        let rows = sqlx::query!(
-            r#"
-            SELECT metric_name, metric_value, timestamp
+        let rows = sqlx::query_as::<_, (String, f64, chrono::DateTime<chrono::Utc>)>(
+            "SELECT metric_name, metric_value, timestamp
             FROM performance_metrics
             WHERE component = $1
             AND timestamp > NOW() - INTERVAL '4 hours'
-            ORDER BY metric_name, timestamp
-            "#,
-            component
+            ORDER BY metric_name, timestamp"
         )
+        .bind(component)
         .fetch_all(&self.database)
         .await
         .context("Failed to fetch component metrics")?;
 
         for row in rows {
-            let entry = metrics.entry(row.metric_name.clone()).or_insert_with(|| MetricHistory {
+            let entry = metrics.entry(row.0.clone()).or_insert_with(|| MetricHistory {
                 timestamps: Vec::new(),
                 values: Vec::new(),
                 component: component.to_string(),
-                metric: row.metric_name.clone(),
+                metric: row.0.clone(),
             });
 
-            entry.timestamps.push(row.timestamp);
-            entry.values.push(row.metric_value);
+            entry.timestamps.push(row.2);
+            entry.values.push(row.1);
         }
 
         Ok(metrics)
@@ -557,22 +555,20 @@ impl ScalingPredictor {
     async fn store_prediction(&self, prediction: &ScalingPrediction) -> Result<()> {
         let action_json = serde_json::to_value(&prediction.recommended_action)?;
 
-        sqlx::query!(
-            r#"
-            INSERT INTO scaling_predictions
+        sqlx::query(
+            "INSERT INTO scaling_predictions
             (component, metric, current_value, predicted_value, prediction_horizon_minutes,
              confidence, recommended_action, urgency)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            "#,
-            prediction.component,
-            prediction.metric,
-            prediction.current_value,
-            prediction.predicted_value,
-            prediction.prediction_horizon_minutes,
-            prediction.confidence,
-            action_json,
-            format!("{:?}", prediction.urgency)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
         )
+        .bind(&prediction.component)
+        .bind(&prediction.metric)
+        .bind(prediction.current_value)
+        .bind(prediction.predicted_value)
+        .bind(prediction.prediction_horizon_minutes)
+        .bind(prediction.confidence)
+        .bind(action_json)
+        .bind(format!("{:?}", prediction.urgency))
         .execute(&self.database)
         .await
         .context("Failed to store prediction")?;
@@ -603,7 +599,7 @@ impl ScalingPredictor {
     }
 
     async fn cleanup_old_predictions(&self) -> Result<()> {
-        sqlx::query!(
+        sqlx::query(
             "DELETE FROM scaling_predictions WHERE created_at < NOW() - INTERVAL '24 hours'"
         )
         .execute(&self.database)
@@ -614,29 +610,29 @@ impl ScalingPredictor {
     }
 
     pub async fn get_recent_predictions(&self, component: Option<&str>, hours: i32) -> Result<Vec<ScalingPrediction>> {
-        let query = if let Some(comp) = component {
-            sqlx::query!(
-                r#"
-                SELECT component, metric, current_value, predicted_value,
+        let _query_result: Vec<(String, String, f64, f64, i32, f64, serde_json::Value, String, chrono::DateTime<chrono::Utc>)> = if let Some(comp) = component {
+            sqlx::query_as(
+                "SELECT component, metric, current_value, predicted_value,
                        prediction_horizon_minutes, confidence, recommended_action, urgency, timestamp
                 FROM scaling_predictions
-                WHERE component = $1 AND timestamp > NOW() - INTERVAL '%s hours'
-                ORDER BY timestamp DESC
-                "#,
-                comp,
-                hours.to_string()
+                WHERE component = $1 AND timestamp > NOW() - $2::text::interval
+                ORDER BY timestamp DESC"
             )
+            .bind(comp)
+            .bind(format!("{} hours", hours))
+            .fetch_all(&self.database)
+            .await?
         } else {
-            sqlx::query!(
-                r#"
-                SELECT component, metric, current_value, predicted_value,
+            sqlx::query_as(
+                "SELECT component, metric, current_value, predicted_value,
                        prediction_horizon_minutes, confidence, recommended_action, urgency, timestamp
                 FROM scaling_predictions
-                WHERE timestamp > NOW() - INTERVAL '%s hours'
-                ORDER BY timestamp DESC
-                "#,
-                hours.to_string()
+                WHERE timestamp > NOW() - $1::text::interval
+                ORDER BY timestamp DESC"
             )
+            .bind(format!("{} hours", hours))
+            .fetch_all(&self.database)
+            .await?
         };
 
         let rows = query.fetch_all(&self.database).await?;

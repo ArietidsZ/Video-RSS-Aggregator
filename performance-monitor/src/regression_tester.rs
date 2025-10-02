@@ -439,10 +439,10 @@ impl RegressionTester {
     }
 
     async fn get_last_test_execution(&self, test_id: &str) -> Result<Option<DateTime<Utc>>> {
-        let result = sqlx::query_scalar!(
-            "SELECT MAX(started_at) FROM test_results WHERE test_id = $1",
-            test_id
+        let result = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
+            "SELECT MAX(started_at) FROM test_results WHERE test_id = $1"
         )
+        .bind(test_id)
         .fetch_optional(&self.database)
         .await?;
 
@@ -807,17 +807,15 @@ impl RegressionTester {
     }
 
     async fn update_baseline(&self, baseline: &PerformanceBaseline, new_value: f64) -> Result<()> {
-        sqlx::query!(
-            r#"
-            UPDATE performance_baselines
+        sqlx::query(
+            "UPDATE performance_baselines
             SET baseline_value = $1, last_updated = NOW(), sample_count = sample_count + 1
-            WHERE component = $2 AND test_name = $3 AND metric = $4
-            "#,
-            new_value,
-            baseline.component,
-            baseline.test_name,
-            baseline.metric
+            WHERE component = $2 AND test_name = $3 AND metric = $4"
         )
+        .bind(new_value)
+        .bind(&baseline.component)
+        .bind(&baseline.test_name)
+        .bind(&baseline.metric)
         .execute(&self.database)
         .await?;
 
@@ -830,9 +828,8 @@ impl RegressionTester {
     async fn store_test_result(&self, result: &TestResult) -> Result<()> {
         let metrics_json = serde_json::to_value(&result.metrics)?;
 
-        sqlx::query!(
-            r#"
-            INSERT INTO test_results
+        sqlx::query(
+            "INSERT INTO test_results
             (execution_id, test_id, component, test_name, started_at, completed_at,
              status, metrics, performance_score, regression_detected, degradation_percentage, error_message)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -843,21 +840,20 @@ impl RegressionTester {
                 performance_score = EXCLUDED.performance_score,
                 regression_detected = EXCLUDED.regression_detected,
                 degradation_percentage = EXCLUDED.degradation_percentage,
-                error_message = EXCLUDED.error_message
-            "#,
-            result.execution_id,
-            result.test_id,
-            result.component,
-            result.test_name,
-            result.started_at,
-            result.completed_at,
-            format!("{:?}", result.status),
-            metrics_json,
-            result.performance_score,
-            result.regression_detected,
-            result.degradation_percentage,
-            result.error_message
+                error_message = EXCLUDED.error_message"
         )
+        .bind(&result.execution_id)
+        .bind(&result.test_id)
+        .bind(&result.component)
+        .bind(&result.test_name)
+        .bind(result.started_at)
+        .bind(result.completed_at)
+        .bind(format!("{:?}", result.status))
+        .bind(metrics_json)
+        .bind(result.performance_score)
+        .bind(result.regression_detected)
+        .bind(result.degradation_percentage)
+        .bind(&result.error_message)
         .execute(&self.database)
         .await?;
 
@@ -865,23 +861,21 @@ impl RegressionTester {
     }
 
     async fn store_regression_alert(&self, alert: &RegressionAlert) -> Result<()> {
-        sqlx::query!(
-            r#"
-            INSERT INTO regression_alerts
+        sqlx::query(
+            "INSERT INTO regression_alerts
             (test_execution_id, component, test_name, metric, baseline_value,
              current_value, degradation_percentage, severity, timestamp)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            "#,
-            alert.test_execution_id,
-            alert.component,
-            alert.test_name,
-            alert.metric,
-            alert.baseline_value,
-            alert.current_value,
-            alert.degradation_percentage,
-            format!("{:?}", alert.severity),
-            alert.timestamp
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
         )
+        .bind(&alert.test_execution_id)
+        .bind(&alert.component)
+        .bind(&alert.test_name)
+        .bind(&alert.metric)
+        .bind(alert.baseline_value)
+        .bind(alert.current_value)
+        .bind(alert.degradation_percentage)
+        .bind(format!("{:?}", alert.severity))
+        .bind(alert.timestamp)
         .execute(&self.database)
         .await?;
 
@@ -891,49 +885,46 @@ impl RegressionTester {
     pub async fn get_test_history(&self, component: Option<&str>, days: i32) -> Result<Vec<TestResult>> {
         let cutoff = Utc::now() - chrono::Duration::days(days as i64);
 
-        let results = if let Some(comp) = component {
-            sqlx::query!(
-                r#"
-                SELECT execution_id, test_id, component, test_name, started_at, completed_at,
+        let results: Vec<(String, String, String, String, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>,
+                          String, serde_json::Value, f64, bool, Option<f64>, Option<String>)> = if let Some(comp) = component {
+            sqlx::query_as(
+                "SELECT execution_id, test_id, component, test_name, started_at, completed_at,
                        status, metrics, performance_score, regression_detected,
                        degradation_percentage, error_message
                 FROM test_results
                 WHERE component = $1 AND started_at > $2
-                ORDER BY started_at DESC
-                "#,
-                comp,
-                cutoff
+                ORDER BY started_at DESC"
             )
+            .bind(comp)
+            .bind(cutoff)
             .fetch_all(&self.database)
             .await?
         } else {
-            sqlx::query!(
-                r#"
-                SELECT execution_id, test_id, component, test_name, started_at, completed_at,
+            sqlx::query_as(
+                "SELECT execution_id, test_id, component, test_name, started_at, completed_at,
                        status, metrics, performance_score, regression_detected,
                        degradation_percentage, error_message
                 FROM test_results
                 WHERE started_at > $1
-                ORDER BY started_at DESC
-                "#,
-                cutoff
+                ORDER BY started_at DESC"
             )
+            .bind(cutoff)
             .fetch_all(&self.database)
             .await?
         };
 
         let mut test_results = Vec::new();
         for row in results {
-            let metrics: HashMap<String, f64> = serde_json::from_value(row.metrics)?;
+            let metrics: HashMap<String, f64> = serde_json::from_value(row.7)?;
 
             test_results.push(TestResult {
-                execution_id: row.execution_id,
-                test_id: row.test_id,
-                component: row.component,
-                test_name: row.test_name,
-                started_at: row.started_at,
-                completed_at: row.completed_at,
-                status: match row.status.as_str() {
+                execution_id: row.0,
+                test_id: row.1,
+                component: row.2,
+                test_name: row.3,
+                started_at: row.4,
+                completed_at: row.5,
+                status: match row.6.as_str() {
                     "Completed" => TestStatus::Completed,
                     "Failed" => TestStatus::Failed,
                     "Timeout" => TestStatus::Timeout,
@@ -941,10 +932,10 @@ impl RegressionTester {
                     _ => TestStatus::Pending,
                 },
                 metrics,
-                performance_score: row.performance_score,
-                regression_detected: row.regression_detected,
-                degradation_percentage: row.degradation_percentage,
-                error_message: row.error_message,
+                performance_score: row.8,
+                regression_detected: row.9,
+                degradation_percentage: row.10,
+                error_message: row.11,
             });
         }
 
@@ -952,14 +943,13 @@ impl RegressionTester {
     }
 
     pub async fn get_active_regressions(&self) -> Result<Vec<RegressionAlert>> {
-        let results = sqlx::query!(
-            r#"
-            SELECT test_execution_id, component, test_name, metric, baseline_value,
+        let results = sqlx::query_as::<_, (String, String, String, String, f64,
+                   f64, f64, String, chrono::DateTime<chrono::Utc>)>(
+            "SELECT test_execution_id, component, test_name, metric, baseline_value,
                    current_value, degradation_percentage, severity, timestamp
             FROM regression_alerts
             WHERE acknowledged = false
-            ORDER BY timestamp DESC
-            "#
+            ORDER BY timestamp DESC"
         )
         .fetch_all(&self.database)
         .await?;
@@ -967,19 +957,19 @@ impl RegressionTester {
         let mut alerts = Vec::new();
         for row in results {
             alerts.push(RegressionAlert {
-                test_execution_id: row.test_execution_id,
-                component: row.component,
-                test_name: row.test_name,
-                metric: row.metric,
-                baseline_value: row.baseline_value,
-                current_value: row.current_value,
-                degradation_percentage: row.degradation_percentage,
-                severity: match row.severity.as_str() {
+                test_execution_id: row.0,
+                component: row.1,
+                test_name: row.2,
+                metric: row.3,
+                baseline_value: row.4,
+                current_value: row.5,
+                degradation_percentage: row.6,
+                severity: match row.7.as_str() {
                     "Critical" => RegressionSeverity::Critical,
                     "Major" => RegressionSeverity::Major,
                     _ => RegressionSeverity::Minor,
                 },
-                timestamp: row.timestamp,
+                timestamp: row.8,
             });
         }
 

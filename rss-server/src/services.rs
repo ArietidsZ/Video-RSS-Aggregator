@@ -84,11 +84,10 @@ impl FeedService {
 
     pub async fn generate_feed(&self, channel_id: &str) -> Result<String> {
         // Try to get feed from database
-        let feed = sqlx::query_as!(
-            Feed,
-            "SELECT * FROM feeds WHERE id = $1",
-            channel_id
+        let feed = sqlx::query_as::<_, Feed>(
+            "SELECT * FROM feeds WHERE id = $1"
         )
+        .bind(channel_id)
         .fetch_optional(&self.db_pool)
         .await?;
 
@@ -138,23 +137,20 @@ impl FeedService {
         let channel_info = self.fetch_channel_info(&channel_id, platform).await?;
 
         // Create feed in database
-        let feed = sqlx::query_as!(
-            Feed,
-            r#"
-            INSERT INTO feeds (id, channel_id, platform, title, description, url, include_summaries, created_at, updated_at)
+        let feed = sqlx::query_as::<_, Feed>(
+            "INSERT INTO feeds (id, channel_id, platform, title, description, url, include_summaries, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-            "#,
-            feed_id,
-            channel_id,
-            platform_name,
-            title.unwrap_or_else(|| channel_info.title.clone()),
-            description.unwrap_or_else(|| channel_info.description.clone()),
-            url,
-            include_summaries,
-            Utc::now(),
-            Utc::now()
+            RETURNING *"
         )
+        .bind(&feed_id)
+        .bind(&channel_id)
+        .bind(platform_name)
+        .bind(title.unwrap_or_else(|| channel_info.title.clone()))
+        .bind(description.unwrap_or_else(|| channel_info.description.clone()))
+        .bind(url)
+        .bind(include_summaries)
+        .bind(Utc::now())
+        .bind(Utc::now())
         .fetch_one(&self.db_pool)
         .await?;
 
@@ -165,17 +161,14 @@ impl FeedService {
     }
 
     pub async fn get_feed_items(&self, channel_id: &str, limit: usize) -> Result<Vec<FeedItem>> {
-        let items = sqlx::query_as!(
-            FeedItem,
-            r#"
-            SELECT * FROM feed_items
+        let items = sqlx::query_as::<_, FeedItem>(
+            "SELECT * FROM feed_items
             WHERE feed_id = $1
             ORDER BY published_at DESC
-            LIMIT $2
-            "#,
-            channel_id,
-            limit as i64
+            LIMIT $2"
         )
+        .bind(channel_id)
+        .bind(limit as i64)
         .fetch_all(&self.db_pool)
         .await?;
 
@@ -183,11 +176,10 @@ impl FeedService {
     }
 
     pub async fn update_feed_items(&self, feed_id: &str) -> Result<()> {
-        let feed = sqlx::query_as!(
-            Feed,
-            "SELECT * FROM feeds WHERE id = $1",
-            feed_id
+        let feed = sqlx::query_as::<_, Feed>(
+            "SELECT * FROM feeds WHERE id = $1"
         )
+        .bind(feed_id)
         .fetch_one(&self.db_pool)
         .await?;
 
@@ -216,35 +208,33 @@ impl FeedService {
                 None
             };
 
-            sqlx::query!(
-                r#"
-                INSERT INTO feed_items (id, feed_id, title, description, summary, url, guid, published_at, created_at)
+            sqlx::query(
+                "INSERT INTO feed_items (id, feed_id, title, description, summary, url, guid, published_at, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ON CONFLICT (guid) DO UPDATE
                 SET title = EXCLUDED.title,
                     description = EXCLUDED.description,
                     summary = EXCLUDED.summary,
-                    updated_at = NOW()
-                "#,
-                item_id,
-                feed_id,
-                item.title,
-                item.description,
-                summary,
-                item.video_url,
-                item.id,
-                item.published_at,
-                Utc::now()
+                    updated_at = NOW()"
             )
+            .bind(&item_id)
+            .bind(feed_id)
+            .bind(&item.title)
+            .bind(&item.description)
+            .bind(&summary)
+            .bind(&item.video_url)
+            .bind(&item.id)
+            .bind(item.published_at)
+            .bind(Utc::now())
             .execute(&self.db_pool)
             .await?;
         }
 
         // Update feed's last_updated timestamp
-        sqlx::query!(
-            "UPDATE feeds SET updated_at = NOW() WHERE id = $1",
-            feed_id
+        sqlx::query(
+            "UPDATE feeds SET updated_at = NOW() WHERE id = $1"
         )
+        .bind(feed_id)
         .execute(&self.db_pool)
         .await?;
 
@@ -375,99 +365,93 @@ impl FeedService {
     }
 
     pub async fn search_feeds(&self, query: &str) -> Result<Vec<serde_json::Value>> {
-        let results = sqlx::query!(
-            r#"
-            SELECT id, title, description, platform, url
+        let results = sqlx::query_as::<_, (String, String, String, String, String)>(
+            "SELECT id, title, description, platform, url
             FROM feeds
             WHERE title ILIKE $1 OR description ILIKE $1
             ORDER BY created_at DESC
-            LIMIT 20
-            "#,
-            format!("%{}%", query)
+            LIMIT 20"
         )
+        .bind(format!("%{}%", query))
         .fetch_all(&self.db_pool)
         .await?;
 
         Ok(results.into_iter().map(|r| serde_json::json!({
-            "id": r.id,
-            "title": r.title,
-            "description": r.description,
-            "platform": r.platform,
-            "url": r.url
+            "id": r.0,
+            "title": r.1,
+            "description": r.2,
+            "platform": r.3,
+            "url": r.4
         })).collect())
     }
 
     pub async fn get_trending_feeds(&self) -> Result<Vec<serde_json::Value>> {
         // Get feeds with most recent activity
-        let results = sqlx::query!(
-            r#"
-            SELECT f.id, f.title, f.description, f.platform, COUNT(fi.id) as item_count
+        let results = sqlx::query_as::<_, (String, String, String, String, i64)>(
+            "SELECT f.id, f.title, f.description, f.platform, COUNT(fi.id) as item_count
             FROM feeds f
             LEFT JOIN feed_items fi ON f.id = fi.feed_id
             WHERE fi.published_at > NOW() - INTERVAL '7 days'
             GROUP BY f.id
             ORDER BY item_count DESC
-            LIMIT 20
-            "#
+            LIMIT 20"
         )
         .fetch_all(&self.db_pool)
         .await?;
 
         Ok(results.into_iter().map(|r| serde_json::json!({
-            "id": r.id,
-            "title": r.title,
-            "description": r.description,
-            "platform": r.platform,
-            "item_count": r.item_count
+            "id": r.0,
+            "title": r.1,
+            "description": r.2,
+            "platform": r.3,
+            "item_count": r.4
         })).collect())
     }
 
     pub async fn get_recommendations(&self, user_id: &str) -> Result<Vec<serde_json::Value>> {
         // Simple recommendation based on user's subscribed feeds
-        let results = sqlx::query!(
-            r#"
-            SELECT f.id, f.title, f.description, f.platform
+        let results = sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT f.id, f.title, f.description, f.platform
             FROM feeds f
             WHERE f.id NOT IN (
                 SELECT feed_id FROM user_subscriptions WHERE user_id = $1
             )
             ORDER BY RANDOM()
-            LIMIT 10
-            "#,
-            user_id
+            LIMIT 10"
         )
+        .bind(user_id)
         .fetch_all(&self.db_pool)
         .await?;
 
         Ok(results.into_iter().map(|r| serde_json::json!({
-            "id": r.id,
-            "title": r.title,
-            "description": r.description,
-            "platform": r.platform
+            "id": r.0,
+            "title": r.1,
+            "description": r.2,
+            "platform": r.3
         })).collect())
     }
 
     pub async fn list_all_feeds(&self) -> Result<Vec<serde_json::Value>> {
-        let results = sqlx::query!(
+        let results = sqlx::query_as::<_, (String, String, String, String, String)>(
             "SELECT id, title, description, platform, url FROM feeds ORDER BY created_at DESC"
         )
         .fetch_all(&self.db_pool)
         .await?;
 
         Ok(results.into_iter().map(|r| serde_json::json!({
-            "id": r.id,
-            "title": r.title,
-            "description": r.description,
-            "platform": r.platform,
-            "url": r.url
+            "id": r.0,
+            "title": r.1,
+            "description": r.2,
+            "platform": r.3,
+            "url": r.4
         })).collect())
     }
 
     pub async fn get_feed_details(&self, feed_id: &str) -> Result<Option<serde_json::Value>> {
-        let result = sqlx::query!(
-            "SELECT * FROM feeds WHERE id = $1",
-            feed_id
+        let result = sqlx::query_as::<_, Feed>(
+            "SELECT * FROM feeds WHERE id = $1"
         )
+        .bind(feed_id)
         .fetch_optional(&self.db_pool)
         .await?;
 
@@ -486,31 +470,31 @@ impl FeedService {
 
     pub async fn update_feed(&self, feed_id: &str, updates: serde_json::Value) -> Result<()> {
         if let Some(title) = updates.get("title").and_then(|v| v.as_str()) {
-            sqlx::query!(
-                "UPDATE feeds SET title = $1, updated_at = NOW() WHERE id = $2",
-                title,
-                feed_id
+            sqlx::query(
+                "UPDATE feeds SET title = $1, updated_at = NOW() WHERE id = $2"
             )
+            .bind(title)
+            .bind(feed_id)
             .execute(&self.db_pool)
             .await?;
         }
 
         if let Some(description) = updates.get("description").and_then(|v| v.as_str()) {
-            sqlx::query!(
-                "UPDATE feeds SET description = $1, updated_at = NOW() WHERE id = $2",
-                description,
-                feed_id
+            sqlx::query(
+                "UPDATE feeds SET description = $1, updated_at = NOW() WHERE id = $2"
             )
+            .bind(description)
+            .bind(feed_id)
             .execute(&self.db_pool)
             .await?;
         }
 
         if let Some(include_summaries) = updates.get("include_summaries").and_then(|v| v.as_bool()) {
-            sqlx::query!(
-                "UPDATE feeds SET include_summaries = $1, updated_at = NOW() WHERE id = $2",
-                include_summaries,
-                feed_id
+            sqlx::query(
+                "UPDATE feeds SET include_summaries = $1, updated_at = NOW() WHERE id = $2"
             )
+            .bind(include_summaries)
+            .bind(feed_id)
             .execute(&self.db_pool)
             .await?;
         }
@@ -520,18 +504,18 @@ impl FeedService {
 
     pub async fn delete_feed(&self, feed_id: &str) -> Result<()> {
         // Delete feed items first
-        sqlx::query!(
-            "DELETE FROM feed_items WHERE feed_id = $1",
-            feed_id
+        sqlx::query(
+            "DELETE FROM feed_items WHERE feed_id = $1"
         )
+        .bind(feed_id)
         .execute(&self.db_pool)
         .await?;
 
         // Delete feed
-        sqlx::query!(
-            "DELETE FROM feeds WHERE id = $1",
-            feed_id
+        sqlx::query(
+            "DELETE FROM feeds WHERE id = $1"
         )
+        .bind(feed_id)
         .execute(&self.db_pool)
         .await?;
 
@@ -539,7 +523,7 @@ impl FeedService {
     }
 
     pub async fn is_healthy(&self) -> bool {
-        sqlx::query!("SELECT 1 as one")
+        sqlx::query_scalar::<_, i32>("SELECT 1")
             .fetch_one(&self.db_pool)
             .await
             .is_ok()

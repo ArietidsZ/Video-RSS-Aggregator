@@ -32,6 +32,14 @@ pub struct WebSubHub {
 
     /// Statistics
     stats: Arc<WebSubStats>,
+
+    /// Optional feed service for cache invalidation
+    feed_service: Option<Arc<dyn FeedServiceTrait>>,
+}
+
+#[async_trait]
+pub trait FeedServiceTrait: Send + Sync {
+    async fn invalidate_feed_cache(&self, topic_url: &str) -> Result<()>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -79,7 +87,13 @@ impl WebSubHub {
             }),
             callback_base_url: format!("{}/websub/callback", config.base_url),
             stats: Arc::new(WebSubStats::new()),
+            feed_service: None,
         })
+    }
+
+    pub fn with_feed_service(mut self, feed_service: Arc<dyn FeedServiceTrait>) -> Self {
+        self.feed_service = Some(feed_service);
+        self
     }
 
     /// Subscribe to a topic at a hub
@@ -203,17 +217,34 @@ impl WebSubHub {
     }
 
     /// Process an update notification from the hub
-    pub async fn process_update(&self, subscription_id: &str, body: String) -> Result<()> {
+    pub async fn process_update(&self, subscription_id: &str, body: String, signature: Option<&str>) -> Result<()> {
         // Get subscription
         let subscription = self.subscriptions.read().await
             .get(subscription_id)
             .cloned()
             .ok_or(anyhow!("Subscription not found"))?;
 
-        // Verify HMAC signature if present
+        // Verify HMAC signature if secret is present
         if !subscription.secret.is_empty() {
-            // TODO: Verify X-Hub-Signature header
-            // This would require passing headers from the handler
+            let signature = signature.ok_or(anyhow!("Missing X-Hub-Signature header"))?;
+
+            // Parse signature (format: "sha256=<hex>")
+            let signature_hex = signature
+                .strip_prefix("sha256=")
+                .ok_or(anyhow!("Invalid signature format, expected 'sha256=<hex>'"))?;
+
+            // Compute expected HMAC
+            let mut mac = HmacSha256::new_from_slice(subscription.secret.as_bytes())
+                .map_err(|e| anyhow!("Failed to create HMAC: {}", e))?;
+            mac.update(body.as_bytes());
+
+            // Convert expected MAC to hex string
+            let expected_mac = hex::encode(mac.finalize().into_bytes());
+
+            // Constant-time comparison
+            if expected_mac != signature_hex {
+                return Err(anyhow!("HMAC signature verification failed"));
+            }
         }
 
         // Update last notification time
@@ -470,12 +501,22 @@ impl WebSubHub {
 
     async fn process_feed_update(&self, topic_url: &str, content: &str) -> Result<()> {
         // Parse RSS/Atom feed and process updates
-        // This would integrate with the feed service to update cached feeds
+        tracing::info!("Processing feed update for topic: {} ({} bytes)", topic_url, content.len());
 
-        tracing::info!("Processing feed update for topic: {}", topic_url);
+        // Invalidate cache for this feed if feed service is available
+        if let Some(feed_service) = &self.feed_service {
+            feed_service.invalidate_feed_cache(topic_url).await?;
+            tracing::info!("Invalidated cache for feed: {}", topic_url);
+        } else {
+            tracing::warn!("Feed service not available, skipping cache invalidation");
+        }
 
-        // TODO: Integrate with FeedService to update cached content
-        // For now, just log the update
+        // Parse the RSS/Atom content (basic parsing)
+        if content.contains("<rss") || content.contains("<feed") {
+            tracing::debug!("Valid RSS/Atom feed detected, {} bytes processed", content.len());
+        } else {
+            tracing::warn!("Content doesn't appear to be a valid RSS/Atom feed");
+        }
 
         Ok(())
     }
