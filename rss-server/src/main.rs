@@ -1,4 +1,4 @@
-mod config;
+pub mod config;
 mod handlers;
 mod models;
 mod services;

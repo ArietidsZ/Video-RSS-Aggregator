@@ -29,7 +29,7 @@ thiserror = "1.0"
 
 # Caching
 redis = { version = "0.24", features = ["aio", "tokio-comp", "connection-manager"] }
-cached = { version = "0.46", features = ["async"] }
+cached = { version = "0.56", features = ["async", "async_tokio_rt_multi_thread"] }
 
 # Rate limiting
 governor = "0.6"
@@ -71,9 +71,6 @@ futures = "0.3"
 
 # UUID
 uuid = { version = "1.6", features = ["v4", "serde"] }
-
-# Proxy support
-proxy-agent = "0.3"
 
 [dev-dependencies]
 mockito = "1.2"

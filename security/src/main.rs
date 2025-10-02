@@ -2,16 +2,13 @@ use anyhow::Result;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    middleware,
     response::Json,
     routing::{get, post, put, delete},
     Router,
 };
 use clap::Parser;
 use std::sync::Arc;
-use tower::ServiceBuilder;
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::trace::TraceLayer;
+use uuid::Uuid;
 use tracing::{info, Level};
 
 mod auth;
@@ -20,7 +17,7 @@ mod rate_limit;
 mod validation;
 mod audit;
 mod oauth;
-mod middleware as auth_middleware;
+mod middleware;
 
 use auth::AuthService;
 use rbac::RBACService;
@@ -42,10 +39,10 @@ struct Args {
     #[arg(long, default_value = "postgresql://videorss:password@localhost/videorss")]
     database_url: String,
 
-    #[arg(long, env = "JWT_SECRET")]
+    #[arg(long)]
     jwt_secret: String,
 
-    #[arg(long, env = "ENCRYPTION_KEY")]
+    #[arg(long)]
     encryption_key: String,
 
     #[arg(long, default_value = "86400")]
@@ -111,8 +108,23 @@ impl SecuritySystem {
     }
 
     pub async fn create_router(self: Arc<Self>) -> Router {
+        use axum::middleware::{from_fn_with_state, from_fn};
+        use crate::middleware::{
+            rate_limit_middleware,
+            audit_middleware,
+            authentication_middleware,
+            authorization_middleware,
+            security_headers_middleware,
+        };
+
+        // Create separate state objects for middleware
+        let rate_limit_state = Arc::clone(&self.rate_limit_service);
+        let audit_state = Arc::clone(&self.audit_service);
+        let auth_state = Arc::clone(&self.auth_service);
+        let rbac_state = Arc::clone(&self.rbac_service);
+
         Router::new()
-            // Authentication endpoints
+            // Authentication endpoints (public - no auth middleware)
             .route("/auth/register", post(register))
             .route("/auth/login", post(login))
             .route("/auth/refresh", post(refresh_token))
@@ -122,49 +134,58 @@ impl SecuritySystem {
             .route("/auth/reset-password", post(reset_password))
             .route("/auth/confirm-reset", post(confirm_password_reset))
 
-            // OAuth endpoints
+            // OAuth endpoints (public)
             .route("/oauth/authorize/:provider", get(oauth_authorize))
             .route("/oauth/callback/:provider", get(oauth_callback))
+            .route("/oauth/accounts/:user_id", get(get_user_oauth_accounts))
+            .route("/oauth/unlink/:user_id/:provider", delete(unlink_oauth_account))
+            .route("/oauth/providers", get(get_available_providers))
+            .route("/oauth/refresh/:user_id/:provider", post(refresh_oauth_token))
 
-            // User management
+            // Health check (public)
+            .route("/health", get(health_check))
+
+            // Protected endpoints - apply authentication and authorization middleware
             .route("/users", get(list_users))
             .route("/users/:user_id", get(get_user))
             .route("/users/:user_id", put(update_user))
             .route("/users/:user_id", delete(delete_user))
             .route("/users/:user_id/roles", get(get_user_roles))
             .route("/users/:user_id/roles", put(update_user_roles))
-
-            // Role and permission management
+            .route("/users/:user_id/roles/json", get(get_user_roles_json_handler))
             .route("/roles", get(list_roles))
             .route("/roles", post(create_role))
             .route("/roles/:role_id", get(get_role))
             .route("/roles/:role_id", put(update_role))
             .route("/roles/:role_id", delete(delete_role))
             .route("/permissions", get(list_permissions))
-
-            // Audit and security monitoring
+            .route("/permissions/check", post(check_permissions_bulk))
+            .route("/permissions/by-resource/:user_id/:resource", get(get_permissions_by_resource))
             .route("/audit/logs", get(get_audit_logs))
             .route("/audit/stats", get(get_audit_stats))
+            .route("/audit/log-event", post(log_event))
+            .route("/audit/search", get(search_audit_events))
+            .route("/audit/export", get(export_audit_logs_handler))
+            .route("/audit/cleanup", post(cleanup_old_audit_events))
+            .route("/audit/dashboard", get(get_security_dashboard))
             .route("/security/rate-limits", get(get_rate_limit_status))
             .route("/security/blocked-ips", get(get_blocked_ips))
             .route("/security/unblock-ip", post(unblock_ip))
+            .route("/security/rate-limit-rules", post(add_rate_limit_rule))
+            .route("/security/rate-limit-rules/:rule_id", delete(remove_rate_limit_rule))
+            .route("/security/violations", get(get_rate_limit_violations))
+            .route("/security/cleanup-expired", post(cleanup_expired_blocks))
+            .route("/validate", post(validate_input))
+            .route("/encryption/encrypt", post(encrypt_data))
+            .route("/encryption/decrypt", post(decrypt_data))
+            .layer(from_fn_with_state(auth_state.clone(), authentication_middleware))
+            .layer(from_fn_with_state(rbac_state.clone(), authorization_middleware))
 
-            // Health check
-            .route("/health", get(health_check))
+            // Apply global middleware to all routes
+            .layer(from_fn_with_state(audit_state, audit_middleware))
+            .layer(from_fn_with_state(rate_limit_state, rate_limit_middleware))
+            .layer(from_fn(security_headers_middleware))
 
-            .layer(
-                ServiceBuilder::new()
-                    .layer(TraceLayer::new_for_http())
-                    .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
-                    .layer(middleware::from_fn_with_state(
-                        Arc::clone(&self.rate_limit_service),
-                        auth_middleware::rate_limit_middleware
-                    ))
-                    .layer(middleware::from_fn_with_state(
-                        Arc::clone(&self.audit_service),
-                        auth_middleware::audit_middleware
-                    ))
-            )
             .with_state(self)
     }
 }
@@ -362,9 +383,10 @@ async fn get_user_roles(
     State(security): State<Arc<SecuritySystem>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    security.rbac_service.get_user_roles(&user_id).await
-        .map(Json)
-        .map_err(|_| StatusCode::NOT_FOUND)
+    let user_uuid = Uuid::parse_str(&user_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let roles = security.rbac_service.get_user_roles(&user_uuid).await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    Ok(Json(serde_json::to_value(roles).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
 
 async fn update_user_roles(
@@ -375,6 +397,15 @@ async fn update_user_roles(
     security.rbac_service.update_user_roles(&user_id, payload).await
         .map(Json)
         .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn get_user_roles_json_handler(
+    State(security): State<Arc<SecuritySystem>>,
+    Path(user_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    security.rbac_service.get_user_roles_json(&user_id).await
+        .map(Json)
+        .map_err(|_| StatusCode::NOT_FOUND)
 }
 
 // Role management handlers
@@ -472,6 +503,262 @@ async fn unblock_ip(
     security.rate_limit_service.unblock_ip(payload).await
         .map(Json)
         .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn validate_input(
+    State(security): State<Arc<SecuritySystem>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let endpoint = payload.get("endpoint")
+        .and_then(|v| v.as_str())
+        .unwrap_or("/");
+    let data = payload.get("data").cloned().unwrap_or(serde_json::json!({}));
+
+    security.validation_service
+        .validate_request_data(data, endpoint)
+        .await
+        .map(|result| Json(serde_json::to_value(result).unwrap()))
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+// OAuth handlers
+async fn get_user_oauth_accounts(
+    State(security): State<Arc<SecuritySystem>>,
+    Path(user_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if let Some(oauth_service) = &security.oauth_service {
+        let user_uuid = Uuid::parse_str(&user_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+        oauth_service.get_user_oauth_accounts(&user_uuid).await
+            .map(|accounts| Json(serde_json::to_value(accounts).unwrap()))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    } else {
+        Err(StatusCode::NOT_IMPLEMENTED)
+    }
+}
+
+async fn unlink_oauth_account(
+    State(security): State<Arc<SecuritySystem>>,
+    Path((user_id, provider)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if let Some(oauth_service) = &security.oauth_service {
+        let user_uuid = Uuid::parse_str(&user_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+        oauth_service.unlink_oauth_account(&user_uuid, &provider).await
+            .map(|_| Json(serde_json::json!({"success": true})))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    } else {
+        Err(StatusCode::NOT_IMPLEMENTED)
+    }
+}
+
+async fn get_available_providers(
+    State(security): State<Arc<SecuritySystem>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if let Some(oauth_service) = &security.oauth_service {
+        let providers = oauth_service.get_available_providers();
+        Ok(Json(serde_json::to_value(providers).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+    } else {
+        Err(StatusCode::NOT_IMPLEMENTED)
+    }
+}
+
+async fn refresh_oauth_token(
+    State(security): State<Arc<SecuritySystem>>,
+    Path((user_id, provider)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if let Some(oauth_service) = &security.oauth_service {
+        let user_uuid = Uuid::parse_str(&user_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+        oauth_service.refresh_oauth_token(&user_uuid, &provider).await
+            .map(|_| Json(serde_json::json!({"success": true})))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    } else {
+        Err(StatusCode::NOT_IMPLEMENTED)
+    }
+}
+
+// Audit handlers
+async fn log_event(
+    State(security): State<Arc<SecuritySystem>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::audit::AuditEvent;
+    let event: AuditEvent = serde_json::from_value(payload).map_err(|_| StatusCode::BAD_REQUEST)?;
+    security.audit_service.log_event(event).await
+        .map(|_| Json(serde_json::json!({"success": true})))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn search_audit_events(
+    State(security): State<Arc<SecuritySystem>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let query = params.get("query").map(|s| s.as_str()).unwrap_or("");
+    let limit = params.get("limit")
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(100);
+
+    security.audit_service.search_events(query, limit).await
+        .map(|events| Json(serde_json::to_value(events).unwrap()))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn export_audit_logs_handler(
+    State(security): State<Arc<SecuritySystem>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::audit::AuditFilter;
+    use base64::{Engine, engine::general_purpose};
+
+    let format = params.get("format").map(|s| s.as_str()).unwrap_or("json");
+    let start_time = params.get("start_time")
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+    let end_time = params.get("end_time")
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+
+    let limit = params.get("limit")
+        .and_then(|s| s.parse::<u32>().ok());
+    let offset = params.get("offset")
+        .and_then(|s| s.parse::<u32>().ok());
+
+    let filter = AuditFilter {
+        event_types: None,
+        user_id: None,
+        ip_address: None,
+        resource: None,
+        action: None,
+        result: None,
+        severity: None,
+        start_time,
+        end_time,
+        limit,
+        offset,
+    };
+
+    security.audit_service.export_audit_logs(filter, format).await
+        .map(|data| Json(serde_json::json!({"data": general_purpose::STANDARD.encode(data)})))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn cleanup_old_audit_events(
+    State(security): State<Arc<SecuritySystem>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    security.audit_service.cleanup_old_events().await
+        .map(|_| Json(serde_json::json!({"success": true})))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn get_security_dashboard(
+    State(security): State<Arc<SecuritySystem>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    security.audit_service.get_security_dashboard_data().await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+// RBAC handlers
+async fn check_permissions_bulk(
+    State(security): State<Arc<SecuritySystem>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::rbac::PermissionCheck;
+
+    let user_id = payload.get("user_id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    let checks: Vec<PermissionCheck> = serde_json::from_value(
+        payload.get("checks").cloned().unwrap_or(serde_json::json!([]))
+    ).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    security.rbac_service.bulk_check_permissions(&user_id, &checks).await
+        .map(|results| Json(serde_json::to_value(results).unwrap()))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn get_permissions_by_resource(
+    State(security): State<Arc<SecuritySystem>>,
+    Path((user_id, resource)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let user_uuid = Uuid::parse_str(&user_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    security.rbac_service.get_user_permissions_by_resource(&user_uuid, &resource).await
+        .map(|perms| Json(serde_json::to_value(perms).unwrap()))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+// Rate limiting handlers
+async fn add_rate_limit_rule(
+    State(security): State<Arc<SecuritySystem>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::rate_limit::RateLimitRule;
+
+    let rule: RateLimitRule = serde_json::from_value(payload).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    security.rate_limit_service.add_rule(rule).await
+        .map(|_| Json(serde_json::json!({"success": true})))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn remove_rate_limit_rule(
+    State(security): State<Arc<SecuritySystem>>,
+    Path(rule_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let rule_uuid = Uuid::parse_str(&rule_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    security.rate_limit_service.remove_rule(&rule_uuid).await
+        .map(|_| Json(serde_json::json!({"success": true})))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn get_rate_limit_violations(
+    State(security): State<Arc<SecuritySystem>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let hours = params.get("hours")
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(24);
+
+    security.rate_limit_service.get_violations(hours).await
+        .map(|violations| Json(serde_json::to_value(violations).unwrap()))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn cleanup_expired_blocks(
+    State(security): State<Arc<SecuritySystem>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    security.rate_limit_service.cleanup_expired().await
+        .map(|_| Json(serde_json::json!({"success": true})))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+// Encryption handlers
+async fn encrypt_data(
+    State(security): State<Arc<SecuritySystem>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let data = payload.get("data")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    security.auth_service.encrypt_sensitive_data(data)
+        .map(|encrypted| Json(serde_json::json!({"encrypted": encrypted})))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn decrypt_data(
+    State(security): State<Arc<SecuritySystem>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let encrypted = payload.get("encrypted")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    security.auth_service.decrypt_sensitive_data(encrypted)
+        .map(|decrypted| Json(serde_json::json!({"data": decrypted})))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn health_check() -> Json<serde_json::Value> {

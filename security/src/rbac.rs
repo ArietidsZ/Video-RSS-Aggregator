@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::collections::{HashMap, HashSet};
-use tracing::{debug, info, warn};
+use std::collections::HashMap;
+use tracing::info;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -19,7 +20,7 @@ pub struct Role {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Permission {
     pub id: Uuid,
     pub name: String,
@@ -229,76 +230,64 @@ impl RBACService {
         ];
 
         for (name, display_name, description, resource, action) in default_permissions {
-            sqlx::query!(
-                r#"
-                INSERT INTO permissions (name, display_name, description, resource, action, is_system)
-                VALUES ($1, $2, $3, $4, $5, true)
-                ON CONFLICT (name) DO NOTHING
-                "#,
-                name,
-                display_name,
-                description,
-                resource,
-                action
+            sqlx::query(
+                "INSERT INTO permissions (name, display_name, description, resource, action, is_system)
+                 VALUES ($1, $2, $3, $4, $5, true)
+                 ON CONFLICT (name) DO NOTHING"
             )
+            .bind(name)
+            .bind(display_name)
+            .bind(description)
+            .bind(resource)
+            .bind(action)
             .execute(database)
             .await?;
         }
 
         // Create default roles
-        let admin_role_id = sqlx::query_scalar!(
-            r#"
-            INSERT INTO roles (name, display_name, description, is_system)
-            VALUES ('admin', 'Administrator', 'Full system access', true)
-            ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
-            RETURNING id
-            "#
+        let admin_role_id: i32 = sqlx::query_scalar(
+            "INSERT INTO roles (name, display_name, description, is_system)
+             VALUES ('admin', 'Administrator', 'Full system access', true)
+             ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
+             RETURNING id"
         )
         .fetch_one(database)
         .await?;
 
-        let moderator_role_id = sqlx::query_scalar!(
-            r#"
-            INSERT INTO roles (name, display_name, description, is_system)
-            VALUES ('moderator', 'Moderator', 'Content moderation and user management', true)
-            ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
-            RETURNING id
-            "#
+        let moderator_role_id: i32 = sqlx::query_scalar(
+            "INSERT INTO roles (name, display_name, description, is_system)
+             VALUES ('moderator', 'Moderator', 'Content moderation and user management', true)
+             ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
+             RETURNING id"
         )
         .fetch_one(database)
         .await?;
 
-        let user_role_id = sqlx::query_scalar!(
-            r#"
-            INSERT INTO roles (name, display_name, description, is_system)
-            VALUES ('user', 'User', 'Standard user access', true)
-            ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
-            RETURNING id
-            "#
+        let user_role_id: i32 = sqlx::query_scalar(
+            "INSERT INTO roles (name, display_name, description, is_system)
+             VALUES ('user', 'User', 'Standard user access', true)
+             ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
+             RETURNING id"
         )
         .fetch_one(database)
         .await?;
 
-        let readonly_role_id = sqlx::query_scalar!(
-            r#"
-            INSERT INTO roles (name, display_name, description, is_system)
-            VALUES ('readonly', 'Read Only', 'Read-only access to feeds and videos', true)
-            ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
-            RETURNING id
-            "#
+        let readonly_role_id: i32 = sqlx::query_scalar(
+            "INSERT INTO roles (name, display_name, description, is_system)
+             VALUES ('readonly', 'Read Only', 'Read-only access to feeds and videos', true)
+             ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
+             RETURNING id"
         )
         .fetch_one(database)
         .await?;
 
         // Assign permissions to admin role (all permissions)
-        sqlx::query!(
-            r#"
-            INSERT INTO role_permissions (role_id, permission_id)
-            SELECT $1, p.id FROM permissions p
-            ON CONFLICT (role_id, permission_id) DO NOTHING
-            "#,
-            admin_role_id
+        sqlx::query(
+            "INSERT INTO role_permissions (role_id, permission_id)
+             SELECT $1, p.id FROM permissions p
+             ON CONFLICT (role_id, permission_id) DO NOTHING"
         )
+        .bind(admin_role_id)
         .execute(database)
         .await?;
 
@@ -309,15 +298,13 @@ impl RBACService {
         ];
 
         for permission_name in moderator_permissions {
-            sqlx::query!(
-                r#"
-                INSERT INTO role_permissions (role_id, permission_id)
-                SELECT $1, p.id FROM permissions p WHERE p.name = $2
-                ON CONFLICT (role_id, permission_id) DO NOTHING
-                "#,
-                moderator_role_id,
-                permission_name
+            sqlx::query(
+                "INSERT INTO role_permissions (role_id, permission_id)
+                 SELECT $1, p.id FROM permissions p WHERE p.name = $2
+                 ON CONFLICT (role_id, permission_id) DO NOTHING"
             )
+            .bind(moderator_role_id)
+            .bind(permission_name)
             .execute(database)
             .await?;
         }
@@ -330,15 +317,13 @@ impl RBACService {
         ];
 
         for permission_name in user_permissions {
-            sqlx::query!(
-                r#"
-                INSERT INTO role_permissions (role_id, permission_id)
-                SELECT $1, p.id FROM permissions p WHERE p.name = $2
-                ON CONFLICT (role_id, permission_id) DO NOTHING
-                "#,
-                user_role_id,
-                permission_name
+            sqlx::query(
+                "INSERT INTO role_permissions (role_id, permission_id)
+                 SELECT $1, p.id FROM permissions p WHERE p.name = $2
+                 ON CONFLICT (role_id, permission_id) DO NOTHING"
             )
+            .bind(user_role_id)
+            .bind(permission_name)
             .execute(database)
             .await?;
         }
@@ -349,15 +334,13 @@ impl RBACService {
         ];
 
         for permission_name in readonly_permissions {
-            sqlx::query!(
-                r#"
-                INSERT INTO role_permissions (role_id, permission_id)
-                SELECT $1, p.id FROM permissions p WHERE p.name = $2
-                ON CONFLICT (role_id, permission_id) DO NOTHING
-                "#,
-                readonly_role_id,
-                permission_name
+            sqlx::query(
+                "INSERT INTO role_permissions (role_id, permission_id)
+                 SELECT $1, p.id FROM permissions p WHERE p.name = $2
+                 ON CONFLICT (role_id, permission_id) DO NOTHING"
             )
+            .bind(readonly_role_id)
+            .bind(permission_name)
             .execute(database)
             .await?;
         }
@@ -412,7 +395,7 @@ impl RBACService {
         if let Some(active) = active_filter {
             param_count += 1;
             query.push_str(&format!(" AND u.is_active = ${}", param_count));
-            // This is a simplified approach - in a real implementation, you'd handle boolean parameters properly
+            params_vec.push(if active { "true" } else { "false" });
         }
 
         query.push_str(" GROUP BY u.id, u.email, u.username, u.first_name, u.last_name, u.is_active, u.is_verified, u.created_at, u.last_login");
@@ -431,15 +414,13 @@ impl RBACService {
     pub async fn get_user(&self, user_id: &str) -> Result<serde_json::Value> {
         let user_uuid = Uuid::parse_str(user_id)?;
 
-        let user = sqlx::query!(
-            r#"
-            SELECT id, email, username, first_name, last_name,
-                   is_active, is_verified, created_at, updated_at, last_login
-            FROM users
-            WHERE id = $1
-            "#,
-            user_uuid
+        let user: (i32, String, String, Option<String>, Option<String>, bool, bool, chrono::DateTime<Utc>, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>) = sqlx::query_as(
+            "SELECT id, email, username, first_name, last_name,
+                    is_active, is_verified, created_at, updated_at, last_login
+             FROM users
+             WHERE id = $1"
         )
+        .bind(user_uuid)
         .fetch_optional(&self.database)
         .await?
         .ok_or_else(|| anyhow::anyhow!("User not found"))?;
@@ -447,16 +428,16 @@ impl RBACService {
         let roles = self.get_user_roles(&user_uuid).await?;
 
         Ok(serde_json::json!({
-            "id": user.id,
-            "email": user.email,
-            "username": user.username,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "is_active": user.is_active,
-            "is_verified": user.is_verified,
-            "created_at": user.created_at,
-            "updated_at": user.updated_at,
-            "last_login": user.last_login,
+            "id": user.0,
+            "email": user.1,
+            "username": user.2,
+            "first_name": user.3,
+            "last_name": user.4,
+            "is_active": user.5,
+            "is_verified": user.6,
+            "created_at": user.7,
+            "updated_at": user.8,
+            "last_login": user.9,
             "roles": roles
         }))
     }
@@ -468,20 +449,18 @@ impl RBACService {
         let last_name = payload.get("last_name").and_then(|v| v.as_str());
         let is_active = payload.get("is_active").and_then(|v| v.as_bool());
 
-        sqlx::query!(
-            r#"
-            UPDATE users
-            SET first_name = COALESCE($2, first_name),
-                last_name = COALESCE($3, last_name),
-                is_active = COALESCE($4, is_active),
-                updated_at = NOW()
-            WHERE id = $1
-            "#,
-            user_uuid,
-            first_name,
-            last_name,
-            is_active
+        sqlx::query(
+            "UPDATE users
+             SET first_name = COALESCE($2, first_name),
+                 last_name = COALESCE($3, last_name),
+                 is_active = COALESCE($4, is_active),
+                 updated_at = NOW()
+             WHERE id = $1"
         )
+        .bind(user_uuid)
+        .bind(first_name)
+        .bind(last_name)
+        .bind(is_active)
         .execute(&self.database)
         .await?;
 
@@ -497,10 +476,10 @@ impl RBACService {
         let user_uuid = Uuid::parse_str(user_id)?;
 
         // Soft delete by deactivating the user
-        sqlx::query!(
-            "UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1",
-            user_uuid
+        sqlx::query(
+            "UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1"
         )
+        .bind(user_uuid)
         .execute(&self.database)
         .await?;
 
@@ -512,37 +491,35 @@ impl RBACService {
     }
 
     pub async fn get_user_roles(&self, user_id: &Uuid) -> Result<Vec<Role>> {
-        let roles = sqlx::query!(
-            r#"
-            SELECT r.id, r.name, r.display_name, r.description, r.is_system,
-                   r.is_active, r.created_at, r.updated_at,
-                   ur.granted_at, ur.expires_at
-            FROM roles r
-            JOIN user_roles ur ON r.id = ur.role_id
-            WHERE ur.user_id = $1 AND ur.is_active = true AND r.is_active = true
-            AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
-            ORDER BY ur.granted_at DESC
-            "#,
-            user_id
+        let roles: Vec<(Uuid, String, String, Option<String>, bool, bool, chrono::DateTime<Utc>, chrono::DateTime<Utc>, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT r.id, r.name, r.display_name, r.description, r.is_system,
+                    r.is_active, r.created_at, r.updated_at,
+                    ur.granted_at, ur.expires_at
+             FROM roles r
+             JOIN user_roles ur ON r.id = ur.role_id
+             WHERE ur.user_id = $1 AND ur.is_active = true AND r.is_active = true
+             AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+             ORDER BY ur.granted_at DESC"
         )
+        .bind(user_id)
         .fetch_all(&self.database)
         .await?;
 
         let mut result = Vec::new();
 
         for role_row in roles {
-            let permissions = self.get_role_permissions(&role_row.id).await?;
+            let permissions = self.get_role_permissions(&role_row.0).await?;
 
             result.push(Role {
-                id: role_row.id,
-                name: role_row.name,
-                display_name: role_row.display_name,
-                description: role_row.description,
-                is_system: role_row.is_system,
-                is_active: role_row.is_active,
+                id: role_row.0,
+                name: role_row.1,
+                display_name: role_row.2,
+                description: role_row.3,
+                is_system: role_row.4,
+                is_active: role_row.5,
                 permissions,
-                created_at: role_row.created_at,
-                updated_at: role_row.updated_at,
+                created_at: role_row.6,
+                updated_at: role_row.7,
             });
         }
 
@@ -578,30 +555,28 @@ impl RBACService {
         let mut tx = self.database.begin().await?;
 
         // Remove existing roles
-        sqlx::query!(
-            "UPDATE user_roles SET is_active = false WHERE user_id = $1",
-            user_uuid
+        sqlx::query(
+            "UPDATE user_roles SET is_active = false WHERE user_id = $1"
         )
+        .bind(user_uuid)
         .execute(&mut *tx)
         .await?;
 
         // Add new roles
         for role_id in role_ids {
-            sqlx::query!(
-                r#"
-                INSERT INTO user_roles (user_id, role_id, granted_by, expires_at)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (user_id, role_id) DO UPDATE SET
-                    is_active = true,
-                    granted_by = EXCLUDED.granted_by,
-                    granted_at = NOW(),
-                    expires_at = EXCLUDED.expires_at
-                "#,
-                user_uuid,
-                role_id,
-                granted_by,
-                expires_at
+            sqlx::query(
+                "INSERT INTO user_roles (user_id, role_id, granted_by, expires_at)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (user_id, role_id) DO UPDATE SET
+                     is_active = true,
+                     granted_by = EXCLUDED.granted_by,
+                     granted_at = NOW(),
+                     expires_at = EXCLUDED.expires_at"
             )
+            .bind(user_uuid)
+            .bind(role_id)
+            .bind(granted_by)
+            .bind(expires_at)
             .execute(&mut *tx)
             .await?;
         }
@@ -619,33 +594,31 @@ impl RBACService {
     }
 
     pub async fn list_roles(&self) -> Result<serde_json::Value> {
-        let roles = sqlx::query!(
-            r#"
-            SELECT r.id, r.name, r.display_name, r.description, r.is_system,
-                   r.is_active, r.created_at, r.updated_at,
-                   COUNT(ur.user_id) as user_count
-            FROM roles r
-            LEFT JOIN user_roles ur ON r.id = ur.role_id AND ur.is_active = true
-            WHERE r.is_active = true
-            GROUP BY r.id, r.name, r.display_name, r.description, r.is_system,
-                     r.is_active, r.created_at, r.updated_at
-            ORDER BY r.created_at DESC
-            "#
+        let roles: Vec<(i32, String, String, Option<String>, bool, bool, chrono::DateTime<Utc>, chrono::DateTime<Utc>, i64)> = sqlx::query_as(
+            "SELECT r.id, r.name, r.display_name, r.description, r.is_system,
+                    r.is_active, r.created_at, r.updated_at,
+                    COUNT(ur.user_id) as user_count
+             FROM roles r
+             LEFT JOIN user_roles ur ON r.id = ur.role_id AND ur.is_active = true
+             WHERE r.is_active = true
+             GROUP BY r.id, r.name, r.display_name, r.description, r.is_system,
+                      r.is_active, r.created_at, r.updated_at
+             ORDER BY r.created_at DESC"
         )
         .fetch_all(&self.database)
         .await?;
 
         let role_list: Vec<serde_json::Value> = roles.into_iter().map(|r| {
             serde_json::json!({
-                "id": r.id,
-                "name": r.name,
-                "display_name": r.display_name,
-                "description": r.description,
-                "is_system": r.is_system,
-                "is_active": r.is_active,
-                "user_count": r.user_count.unwrap_or(0),
-                "created_at": r.created_at,
-                "updated_at": r.updated_at
+                "id": r.0,
+                "name": r.1,
+                "display_name": r.2,
+                "description": r.3,
+                "is_system": r.4,
+                "is_active": r.5,
+                "user_count": r.8,
+                "created_at": r.6,
+                "updated_at": r.7
             })
         }).collect();
 
@@ -658,29 +631,25 @@ impl RBACService {
         let request: CreateRoleRequest = serde_json::from_value(payload)?;
         request.validate()?;
 
-        let role_id = sqlx::query_scalar!(
-            r#"
-            INSERT INTO roles (name, display_name, description)
+        let role_id = sqlx::query_scalar::<_, i32>(
+            "INSERT INTO roles (name, display_name, description)
             VALUES ($1, $2, $3)
-            RETURNING id
-            "#,
-            request.name,
-            request.display_name,
-            request.description
+            RETURNING id"
         )
+        .bind(&request.name)
+        .bind(&request.display_name)
+        .bind(&request.description)
         .fetch_one(&self.database)
         .await?;
 
         // Assign permissions to the role
         for permission_id in request.permission_ids {
-            sqlx::query!(
-                r#"
-                INSERT INTO role_permissions (role_id, permission_id)
-                VALUES ($1, $2)
-                "#,
-                role_id,
-                permission_id
+            sqlx::query(
+                "INSERT INTO role_permissions (role_id, permission_id)
+                 VALUES ($1, $2)"
             )
+            .bind(role_id)
+            .bind(permission_id)
             .execute(&self.database)
             .await?;
         }
@@ -696,15 +665,13 @@ impl RBACService {
     pub async fn get_role(&self, role_id: &str) -> Result<serde_json::Value> {
         let role_uuid = Uuid::parse_str(role_id)?;
 
-        let role = sqlx::query!(
-            r#"
-            SELECT id, name, display_name, description, is_system,
-                   is_active, created_at, updated_at
-            FROM roles
-            WHERE id = $1
-            "#,
-            role_uuid
+        let role: (i32, String, String, Option<String>, bool, bool, chrono::DateTime<Utc>, chrono::DateTime<Utc>) = sqlx::query_as(
+            "SELECT id, name, display_name, description, is_system,
+                    is_active, created_at, updated_at
+             FROM roles
+             WHERE id = $1"
         )
+        .bind(role_uuid)
         .fetch_optional(&self.database)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Role not found"))?;
@@ -712,14 +679,14 @@ impl RBACService {
         let permissions = self.get_role_permissions(&role_uuid).await?;
 
         Ok(serde_json::json!({
-            "id": role.id,
-            "name": role.name,
-            "display_name": role.display_name,
-            "description": role.description,
-            "is_system": role.is_system,
-            "is_active": role.is_active,
-            "created_at": role.created_at,
-            "updated_at": role.updated_at,
+            "id": role.0,
+            "name": role.1,
+            "display_name": role.2,
+            "description": role.3,
+            "is_system": role.4,
+            "is_active": role.5,
+            "created_at": role.6,
+            "updated_at": role.7,
             "permissions": permissions
         }))
     }
@@ -730,10 +697,10 @@ impl RBACService {
         request.validate()?;
 
         // Check if role is system role
-        let is_system = sqlx::query_scalar!(
-            "SELECT is_system FROM roles WHERE id = $1",
-            role_uuid
+        let is_system = sqlx::query_scalar::<_, bool>(
+            "SELECT is_system FROM roles WHERE id = $1"
         )
+        .bind(role_uuid)
         .fetch_optional(&self.database)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Role not found"))?;
@@ -743,20 +710,18 @@ impl RBACService {
         }
 
         // Update role details
-        sqlx::query!(
-            r#"
-            UPDATE roles
-            SET display_name = COALESCE($2, display_name),
-                description = COALESCE($3, description),
-                is_active = COALESCE($4, is_active),
-                updated_at = NOW()
-            WHERE id = $1
-            "#,
-            role_uuid,
-            request.display_name,
-            request.description,
-            request.is_active
+        sqlx::query(
+            "UPDATE roles
+             SET display_name = COALESCE($2, display_name),
+                 description = COALESCE($3, description),
+                 is_active = COALESCE($4, is_active),
+                 updated_at = NOW()
+             WHERE id = $1"
         )
+        .bind(role_uuid)
+        .bind(request.display_name)
+        .bind(request.description)
+        .bind(request.is_active)
         .execute(&self.database)
         .await?;
 
@@ -765,23 +730,21 @@ impl RBACService {
             let mut tx = self.database.begin().await?;
 
             // Remove existing permissions
-            sqlx::query!(
-                "DELETE FROM role_permissions WHERE role_id = $1",
-                role_uuid
+            sqlx::query(
+                "DELETE FROM role_permissions WHERE role_id = $1"
             )
+            .bind(role_uuid)
             .execute(&mut *tx)
             .await?;
 
             // Add new permissions
             for permission_id in permission_ids {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO role_permissions (role_id, permission_id)
-                    VALUES ($1, $2)
-                    "#,
-                    role_uuid,
-                    permission_id
+                sqlx::query(
+                    "INSERT INTO role_permissions (role_id, permission_id)
+                     VALUES ($1, $2)"
                 )
+                .bind(role_uuid)
+                .bind(permission_id)
                 .execute(&mut *tx)
                 .await?;
             }
@@ -803,10 +766,10 @@ impl RBACService {
         let role_uuid = Uuid::parse_str(role_id)?;
 
         // Check if role is system role
-        let is_system = sqlx::query_scalar!(
-            "SELECT is_system FROM roles WHERE id = $1",
-            role_uuid
+        let is_system = sqlx::query_scalar::<_, bool>(
+            "SELECT is_system FROM roles WHERE id = $1"
         )
+        .bind(role_uuid)
         .fetch_optional(&self.database)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Role not found"))?;
@@ -816,10 +779,10 @@ impl RBACService {
         }
 
         // Check if role is assigned to any users
-        let user_count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM user_roles WHERE role_id = $1 AND is_active = true",
-            role_uuid
+        let user_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM user_roles WHERE role_id = $1 AND is_active = true"
         )
+        .bind(role_uuid)
         .fetch_one(&self.database)
         .await?;
 
@@ -828,10 +791,10 @@ impl RBACService {
         }
 
         // Soft delete by deactivating
-        sqlx::query!(
-            "UPDATE roles SET is_active = false, updated_at = NOW() WHERE id = $1",
-            role_uuid
+        sqlx::query(
+            "UPDATE roles SET is_active = false, updated_at = NOW() WHERE id = $1"
         )
+        .bind(role_uuid)
         .execute(&self.database)
         .await?;
 
@@ -843,28 +806,26 @@ impl RBACService {
     }
 
     pub async fn list_permissions(&self) -> Result<serde_json::Value> {
-        let permissions = sqlx::query!(
-            r#"
-            SELECT id, name, display_name, description, resource, action,
-                   conditions, is_system, created_at
-            FROM permissions
-            ORDER BY resource, action, name
-            "#
+        let permissions: Vec<(i32, String, String, Option<String>, String, String, Option<serde_json::Value>, bool, chrono::DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, name, display_name, description, resource, action,
+                    conditions, is_system, created_at
+             FROM permissions
+             ORDER BY resource, action, name"
         )
         .fetch_all(&self.database)
         .await?;
 
         let permission_list: Vec<serde_json::Value> = permissions.into_iter().map(|p| {
             serde_json::json!({
-                "id": p.id,
-                "name": p.name,
-                "display_name": p.display_name,
-                "description": p.description,
-                "resource": p.resource,
-                "action": p.action,
-                "conditions": p.conditions,
-                "is_system": p.is_system,
-                "created_at": p.created_at
+                "id": p.0,
+                "name": p.1,
+                "display_name": p.2,
+                "description": p.3,
+                "resource": p.4,
+                "action": p.5,
+                "conditions": p.6,
+                "is_system": p.7,
+                "created_at": p.8
             })
         }).collect();
 
@@ -874,18 +835,15 @@ impl RBACService {
     }
 
     async fn get_role_permissions(&self, role_id: &Uuid) -> Result<Vec<Permission>> {
-        let permissions = sqlx::query_as!(
-            Permission,
-            r#"
-            SELECT p.id, p.name, p.display_name, p.description, p.resource,
+        let permissions = sqlx::query_as::<_, Permission>(
+            "SELECT p.id, p.name, p.display_name, p.description, p.resource,
                    p.action, p.conditions, p.is_system, p.created_at
             FROM permissions p
             JOIN role_permissions rp ON p.id = rp.permission_id
             WHERE rp.role_id = $1
-            ORDER BY p.resource, p.action, p.name
-            "#,
-            role_id
+            ORDER BY p.resource, p.action, p.name"
         )
+        .bind(role_id)
         .fetch_all(&self.database)
         .await?;
 
@@ -921,20 +879,17 @@ impl RBACService {
         }
 
         // Fetch from database
-        let permissions = sqlx::query_as!(
-            Permission,
-            r#"
-            SELECT DISTINCT p.id, p.name, p.display_name, p.description,
+        let permissions = sqlx::query_as::<_, Permission>(
+            "SELECT DISTINCT p.id, p.name, p.display_name, p.description,
                    p.resource, p.action, p.conditions, p.is_system, p.created_at
             FROM permissions p
             JOIN role_permissions rp ON p.id = rp.permission_id
             JOIN user_roles ur ON rp.role_id = ur.role_id
             WHERE ur.user_id = $1 AND ur.is_active = true
             AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
-            ORDER BY p.resource, p.action, p.name
-            "#,
-            user_id
+            ORDER BY p.resource, p.action, p.name"
         )
+        .bind(user_id)
         .fetch_all(&self.database)
         .await?;
 

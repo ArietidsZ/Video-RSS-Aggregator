@@ -270,15 +270,12 @@ impl WebhookManager {
     }
 
     async fn load_webhooks(&self) -> Result<()> {
-        let webhooks = sqlx::query_as!(
-            Webhook,
-            r#"
-            SELECT id, user_id, name, url, events, headers, secret,
+        let webhooks = sqlx::query_as::<_, Webhook>(
+            "SELECT id, user_id, name, url, events, headers, secret,
                    active, retry_config, created_at, updated_at,
                    last_triggered, failure_count
             FROM webhooks
-            WHERE active = true
-            "#
+            WHERE active = true"
         )
         .fetch_all(&self.pool)
         .await?;
@@ -293,26 +290,23 @@ impl WebhookManager {
     }
 
     pub async fn create_webhook(&self, webhook: Webhook) -> Result<Webhook> {
-        let webhook = sqlx::query_as!(
-            Webhook,
-            r#"
-            INSERT INTO webhooks (id, user_id, name, url, events, headers,
+        let webhook = sqlx::query_as::<_, Webhook>(
+            "INSERT INTO webhooks (id, user_id, name, url, events, headers,
                                 secret, active, retry_config, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING *
-            "#,
-            webhook.id,
-            webhook.user_id,
-            webhook.name,
-            webhook.url,
-            serde_json::to_value(&webhook.events)?,
-            serde_json::to_value(&webhook.headers)?,
-            webhook.secret,
-            webhook.active,
-            serde_json::to_value(&webhook.retry_config)?,
-            webhook.created_at,
-            webhook.updated_at,
+            RETURNING *"
         )
+        .bind(webhook.id)
+        .bind(&webhook.user_id)
+        .bind(&webhook.name)
+        .bind(&webhook.url)
+        .bind(serde_json::to_value(&webhook.events)?)
+        .bind(serde_json::to_value(&webhook.headers)?)
+        .bind(&webhook.secret)
+        .bind(webhook.active)
+        .bind(serde_json::to_value(&webhook.retry_config)?)
+        .bind(webhook.created_at)
+        .bind(webhook.updated_at)
         .fetch_one(&self.pool)
         .await?;
 
@@ -323,10 +317,8 @@ impl WebhookManager {
     }
 
     pub async fn update_webhook(&self, id: Uuid, updates: WebhookUpdate) -> Result<Webhook> {
-        let webhook = sqlx::query_as!(
-            Webhook,
-            r#"
-            UPDATE webhooks
+        let webhook = sqlx::query_as::<_, Webhook>(
+            "UPDATE webhooks
             SET name = COALESCE($2, name),
                 url = COALESCE($3, url),
                 events = COALESCE($4, events),
@@ -335,16 +327,15 @@ impl WebhookManager {
                 active = COALESCE($7, active),
                 updated_at = NOW()
             WHERE id = $1
-            RETURNING *
-            "#,
-            id,
-            updates.name,
-            updates.url,
-            updates.events.map(|e| serde_json::to_value(&e).unwrap()),
-            updates.headers.map(|h| serde_json::to_value(&h).unwrap()),
-            updates.secret,
-            updates.active,
+            RETURNING *"
         )
+        .bind(id)
+        .bind(updates.name)
+        .bind(updates.url)
+        .bind(updates.events.map(|e| serde_json::to_value(&e).unwrap()))
+        .bind(updates.headers.map(|h| serde_json::to_value(&h).unwrap()))
+        .bind(updates.secret)
+        .bind(updates.active)
         .fetch_one(&self.pool)
         .await?;
 
@@ -355,10 +346,10 @@ impl WebhookManager {
     }
 
     pub async fn delete_webhook(&self, id: Uuid) -> Result<()> {
-        sqlx::query!(
-            "UPDATE webhooks SET active = false WHERE id = $1",
-            id
+        sqlx::query(
+            "UPDATE webhooks SET active = false WHERE id = $1"
         )
+        .bind(id)
         .execute(&self.pool)
         .await?;
 
@@ -581,28 +572,26 @@ impl WebhookManager {
         self.delivery_history.write().await.push(delivery.clone());
 
         // Store in database
-        let _ = sqlx::query!(
-            r#"
-            INSERT INTO webhook_deliveries
+        let _ = sqlx::query(
+            "INSERT INTO webhook_deliveries
             (id, webhook_id, event_id, url, request_headers, request_body,
              response_status, response_body, delivered_at, duration_ms,
              attempt_number, success, error_message)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            "#,
-            delivery.id,
-            delivery.webhook_id,
-            delivery.event_id,
-            delivery.url,
-            serde_json::to_value(&delivery.request_headers).unwrap(),
-            delivery.request_body,
-            delivery.response_status.map(|s| s as i32),
-            delivery.response_body,
-            delivery.delivered_at,
-            delivery.duration_ms as i64,
-            delivery.attempt_number as i32,
-            delivery.success,
-            delivery.error_message,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"
         )
+        .bind(delivery.id)
+        .bind(delivery.webhook_id)
+        .bind(&delivery.event_id)
+        .bind(&delivery.url)
+        .bind(serde_json::to_value(&delivery.request_headers).unwrap())
+        .bind(&delivery.request_body)
+        .bind(delivery.response_status.map(|s| s as i32))
+        .bind(&delivery.response_body)
+        .bind(delivery.delivered_at)
+        .bind(delivery.duration_ms as i64)
+        .bind(delivery.attempt_number as i32)
+        .bind(delivery.success)
+        .bind(&delivery.error_message)
         .execute(&self.pool)
         .await;
     }
@@ -647,15 +636,13 @@ impl WebhookManager {
     }
 
     async fn increment_failure_count(&self, webhook_id: Uuid) -> Result<()> {
-        sqlx::query!(
-            r#"
-            UPDATE webhooks
+        sqlx::query(
+            "UPDATE webhooks
             SET failure_count = failure_count + 1,
                 active = CASE WHEN failure_count >= 10 THEN false ELSE active END
-            WHERE id = $1
-            "#,
-            webhook_id
+            WHERE id = $1"
         )
+        .bind(webhook_id)
         .execute(&self.pool)
         .await?;
 
@@ -673,10 +660,10 @@ impl WebhookManager {
 
                 let cutoff = Utc::now() - Duration::days(retention_days as i64);
 
-                let _ = sqlx::query!(
-                    "DELETE FROM webhook_deliveries WHERE delivered_at < $1",
-                    cutoff
+                let _ = sqlx::query(
+                    "DELETE FROM webhook_deliveries WHERE delivered_at < $1"
                 )
+                .bind(cutoff)
                 .execute(&manager.pool)
                 .await;
 

@@ -29,7 +29,7 @@ redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "clu
 
 # Caching
 moka = { version = "0.12", features = ["future"] }
-cached = { version = "0.46", features = ["async", "redis_store"] }
+cached = { version = "0.56", features = ["async", "redis_store", "async_tokio_rt_multi_thread"] }
 
 # HTTP client
 reqwest = { version = "0.11", features = ["json", "rustls-tls", "stream", "gzip"] }
@@ -114,7 +114,3 @@ panic = "abort"
 
 [profile.bench]
 inherits = "release"
-
-[[bench]]
-name = "rss_generation"
-harness = false
