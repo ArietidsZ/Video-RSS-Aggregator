@@ -5,18 +5,18 @@ edition = "2021"
 
 [dependencies]
 # Web framework
-axum = { version = "0.7", features = ["macros", "ws", "http2"] }
-tower = { version = "0.4", features = ["full"] }
-tower-http = { version = "0.5", features = ["fs", "cors", "compression-full", "trace"] }
-hyper = { version = "1.0", features = ["full"] }
+axum = { version = "0.8", features = ["macros", "ws", "http2"] }
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.6", features = ["fs", "cors", "compression-full", "trace"] }
+hyper = { version = "1.6", features = ["full"] }
 
 # Async runtime
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.47", features = ["full"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_xml_rs = "0.6"
+serde-xml-rs = "0.6"
 quick-xml = { version = "0.31", features = ["serialize"] }
 
 # RSS/Atom
@@ -24,22 +24,22 @@ rss = "2.0"
 atom_syndication = "0.12"
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid"] }
-redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "cluster-async"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid"] }
+redis = { version = "0.32", features = ["tokio-comp", "connection-manager", "cluster-async"] }
 
 # Caching
 moka = { version = "0.12", features = ["future"] }
 cached = { version = "0.56", features = ["async", "redis_store", "async_tokio_rt_multi_thread"] }
 
 # HTTP client
-reqwest = { version = "0.11", features = ["json", "rustls-tls", "stream", "gzip"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "gzip"] }
 
 # Date/Time
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4.38", features = ["serde"] }
 chrono-tz = "0.8"
 
 # UUID
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid = { version = "1.18", features = ["v4", "serde"] }
 
 # Logging
 tracing = "0.1"
@@ -50,18 +50,18 @@ config = "0.13"
 dotenvy = "0.15"
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 anyhow = "1.0"
 
 # Authentication
-jsonwebtoken = "9.2"
+jsonwebtoken = "9.3"
 argon2 = "0.5"
 
 # Validation
 validator = { version = "0.16", features = ["derive"] }
 
 # Rate limiting
-governor = "0.6"
+governor = "0.10"
 
 # Compression
 flate2 = "1.0"
@@ -89,7 +89,7 @@ url = "2.5"
 
 # Deduplication
 blake3 = "1.5"
-dashmap = "5.5"
+dashmap = "6.1"
 
 # Performance
 rayon = "1.8"

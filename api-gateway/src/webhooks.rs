@@ -860,11 +860,11 @@ pub fn create_webhook_router(pool: PgPool) -> Router {
 
     Router::new()
         .route("/webhooks", post(create_webhook_handler).get(list_webhooks_handler))
-        .route("/webhooks/:id", get(get_webhook_handler)
+        .route("/webhooks/{id}", get(get_webhook_handler)
             .patch(update_webhook_handler)
             .delete(delete_webhook_handler))
-        .route("/webhooks/:id/test", post(test_webhook_handler))
-        .route("/webhooks/:id/deliveries", get(get_delivery_history_handler))
-        .route("/webhooks/:id/statistics", get(get_statistics_handler))
+        .route("/webhooks/{id}/test", post(test_webhook_handler))
+        .route("/webhooks/{id}/deliveries", get(get_delivery_history_handler))
+        .route("/webhooks/{id}/statistics", get(get_statistics_handler))
         .with_state(manager)
 }

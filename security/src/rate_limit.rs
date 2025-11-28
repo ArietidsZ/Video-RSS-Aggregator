@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use governor::{
     clock::DefaultClock,
-    middleware::NoOpMiddleware,
     state::{InMemoryState, NotKeyed},
     Quota, RateLimiter,
 };
@@ -96,7 +95,7 @@ pub struct RateLimitViolation {
 pub struct RateLimitService {
     redis: redis::aio::ConnectionManager,
     rules: Arc<RwLock<Vec<RateLimitRule>>>,
-    limiters: Arc<RwLock<HashMap<String, Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>>>>>,
+    limiters: Arc<RwLock<HashMap<String, Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>>>>,
     blocked_entities: Arc<RwLock<HashMap<String, BlockedEntity>>>,
     violations: Arc<RwLock<Vec<RateLimitViolation>>>,
 }
@@ -475,7 +474,7 @@ impl RateLimitService {
             .arg(key)
             .arg(0)
             .arg(window_start)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
 
         // Count current requests in window
@@ -506,12 +505,12 @@ impl RateLimitService {
             .arg(key)
             .arg(current_time)
             .arg(&request_id)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
         redis::cmd("EXPIRE")
             .arg(key)
             .arg(rule.window_seconds)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
 
         Ok(RateLimitStatus {
@@ -586,7 +585,7 @@ impl RateLimitService {
                         "violation_count": violation.violation_count,
                         "timestamp": chrono::Utc::now()
                     }).to_string())
-                    .query_async::<_, ()>(&mut conn)
+                    .query_async::<()>(&mut conn)
                     .await?;
             },
             LimitAction::RequireAuth => {
@@ -596,7 +595,7 @@ impl RateLimitService {
                     .arg(format!("auth_required:{}", key))
                     .arg(3600)
                     .arg("true")
-                    .query_async::<_, ()>(&mut conn)
+                    .query_async::<()>(&mut conn)
                     .await?;
             },
             LimitAction::TemporaryBan { duration_minutes } => {
@@ -647,13 +646,13 @@ impl RateLimitService {
                 .arg(format!("blocked:{}", key))
                 .arg(duration_seconds)
                 .arg(serialized)
-                .query_async::<_, ()>(&mut conn)
+                .query_async::<()>(&mut conn)
                 .await?;
         } else {
             redis::cmd("SET")
                 .arg(format!("blocked:{}", key))
                 .arg(serialized)
-                .query_async::<_, ()>(&mut conn)
+                .query_async::<()>(&mut conn)
                 .await?;
         }
 

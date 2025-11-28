@@ -123,41 +123,41 @@ fn create_router(state: AppState) -> Router {
     // Define routes
     Router::new()
         // RSS endpoints
-        .route("/rss/:channel_id", get(handlers::rss::get_feed))
-        .route("/rss/:channel_id/items", get(handlers::rss::get_feed_items))
+        .route("/rss/{channel_id}", get(handlers::rss::get_feed))
+        .route("/rss/{channel_id}/items", get(handlers::rss::get_feed_items))
         .route("/rss/generate", post(handlers::rss::generate_feed))
         .route("/rss/batch", post(handlers::rss::batch_generate_feeds))
 
         // Platform-specific RSS
-        .route("/rss/youtube/:channel_id", get(handlers::platform::youtube_feed))
-        .route("/rss/bilibili/:uid", get(handlers::platform::bilibili_feed))
-        .route("/rss/douyin/:user_id", get(handlers::platform::douyin_feed))
-        .route("/rss/kuaishou/:user_id", get(handlers::platform::kuaishou_feed))
+        .route("/rss/youtube/{channel_id}", get(handlers::platform::youtube_feed))
+        .route("/rss/bilibili/{uid}", get(handlers::platform::bilibili_feed))
+        .route("/rss/douyin/{user_id}", get(handlers::platform::douyin_feed))
+        .route("/rss/kuaishou/{user_id}", get(handlers::platform::kuaishou_feed))
 
         // Summarization endpoints
         .route("/summarize", post(handlers::summary::summarize_content))
         .route("/summarize/batch", post(handlers::summary::batch_summarize))
-        .route("/summarize/status/:job_id", get(handlers::summary::get_job_status))
+        .route("/summarize/status/{job_id}", get(handlers::summary::get_job_status))
 
         // WebSub endpoints
         .route("/websub/subscribe", post(handlers::websub::subscribe))
         .route("/websub/unsubscribe", post(handlers::websub::unsubscribe))
         .route("/websub/publish", post(handlers::websub::publish))
-        .route("/websub/callback/:subscription_id",
+        .route("/websub/callback/{subscription_id}",
             get(handlers::websub::verify_subscription)
             .post(handlers::websub::receive_update))
 
         // QR code generation
-        .route("/qr/:feed_id", get(handlers::qr::generate_qr_code))
+        .route("/qr/{feed_id}", get(handlers::qr::generate_qr_code))
 
         // Search and discovery
         .route("/search", get(handlers::search::search_feeds))
         .route("/trending", get(handlers::search::trending_feeds))
-        .route("/recommendations/:user_id", get(handlers::search::recommendations))
+        .route("/recommendations/{user_id}", get(handlers::search::recommendations))
 
         // Management endpoints
         .route("/feeds", get(handlers::management::list_feeds))
-        .route("/feeds/:feed_id",
+        .route("/feeds/{feed_id}",
             get(handlers::management::get_feed)
             .put(handlers::management::update_feed)
             .delete(handlers::management::delete_feed))

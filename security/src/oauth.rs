@@ -237,7 +237,7 @@ impl OAuthService {
             .arg(format!("oauth_state:{}", csrf_token.secret()))
             .arg(600) // 10 minutes
             .arg(serde_json::to_string(&state)?)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
 
         info!("OAuth authorization URL generated for provider: {}", provider.name);
@@ -297,7 +297,7 @@ impl OAuthService {
             .arg(format!("oauth_state:{}", csrf_token.secret()))
             .arg(600) // 10 minutes
             .arg(serde_json::to_string(&state)?)
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
 
         info!("OpenID Connect authorization URL generated for provider: {}", provider.name);
@@ -840,8 +840,12 @@ async fn async_http_client(request: oauth2::HttpRequest) -> Result<oauth2::HttpR
         .build()
         .map_err(oauth2::reqwest::Error::Reqwest)?;
 
+    let method_str = request.method.as_str();
+    let method = reqwest::Method::from_bytes(method_str.as_bytes())
+        .map_err(|_| oauth2::reqwest::Error::Other("Invalid HTTP method".to_string()))?;
+
     let mut request_builder = client
-        .request(request.method, &request.url.to_string())
+        .request(method, &request.url.to_string())
         .body(request.body);
 
     for (name, value) in &request.headers {
@@ -851,8 +855,18 @@ async fn async_http_client(request: oauth2::HttpRequest) -> Result<oauth2::HttpR
     let response = request_builder.send().await
         .map_err(oauth2::reqwest::Error::Reqwest)?;
 
-    let status_code = response.status();
-    let headers = response.headers().clone();
+    let status_code = oauth2::http::StatusCode::from_u16(response.status().as_u16())
+        .map_err(|_| oauth2::reqwest::Error::Other("Invalid status code".to_string()))?;
+
+    let mut headers = oauth2::http::HeaderMap::new();
+    for (name, value) in response.headers() {
+        if let Ok(header_name) = oauth2::http::HeaderName::from_bytes(name.as_str().as_bytes()) {
+            if let Ok(header_value) = oauth2::http::HeaderValue::from_bytes(value.as_bytes()) {
+                headers.insert(header_name, header_value);
+            }
+        }
+    }
+
     let chunks = response.bytes().await
         .map_err(oauth2::reqwest::Error::Reqwest)?;
 

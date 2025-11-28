@@ -511,7 +511,7 @@ impl AuthService {
             .arg(format!("blacklist:{}", claims.jti))
             .arg(self.token_expiry.num_seconds())
             .arg("revoked")
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
 
         info!("User logged out successfully: {} ({})", claims.username, claims.sub);
@@ -823,7 +823,7 @@ impl AuthService {
                 "user_id": user_id.to_string(),
                 "token": token
             }).to_string())
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
 
         Ok(())
@@ -868,7 +868,7 @@ impl AuthService {
             .arg(format!("verify:{}", token))
             .arg(86400) // 24 hours
             .arg(user_id.to_string())
-            .query_async::<_, ()>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
 
         Ok(token)

@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package video_rss.events.v1;
+
+option go_package = "github.com/arietids/video-rss-aggregator/gen/go/events/v1;eventsv1";
+
+import "google/protobuf/timestamp.proto";
+
+// Published when a new video is discovered by the Ingestion Service
+message VideoDiscoveredEvent {
+  string feed_id = 1;
+  string video_id = 2;
+  string url = 3;
+  string title = 4;
+  google.protobuf.Timestamp published_at = 5;
+  string provider = 6; // YOUTUBE, VIMEO, etc.
+}
+
+// Published when transcription is complete
+message TranscriptionCompletedEvent {
+  string video_id = 1;
+  string transcription_text = 2;
+  string language = 3;
+}
+
+// Published when summarization is complete
+message SummarizationCompletedEvent {
+  string video_id = 1;
+  string summary_text = 2;
+  repeated string key_points = 3;
+}

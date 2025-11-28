@@ -1,9 +1,9 @@
 use async_graphql::{
     dataloader::{DataLoader, Loader},
-    extensions::Tracing,
     http::{playground_source, GraphQLPlaygroundConfig},
     *,
 };
+use futures::Stream;
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::{
     extract::State,
@@ -14,7 +14,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, FromRow};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
@@ -28,7 +28,7 @@ use base64::{Engine as _, engine::general_purpose};
 
 // GraphQL Schema Types
 
-#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject)]
+#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject, FromRow)]
 pub struct Video {
     pub id: ID,
     pub title: String,
@@ -47,7 +47,7 @@ pub struct Video {
     pub _channel: Option<Channel>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject)]
+#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject, FromRow)]
 pub struct Channel {
     pub id: ID,
     pub name: String,
@@ -89,7 +89,7 @@ pub struct UserPreferences {
     pub notifications_enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject)]
+#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject, FromRow)]
 pub struct Feed {
     pub id: ID,
     pub url: String,
@@ -102,7 +102,7 @@ pub struct Feed {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject)]
+#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject, FromRow)]
 pub struct Summary {
     pub id: ID,
     pub video_id: ID,
@@ -358,8 +358,8 @@ impl QueryRoot {
             .collect();
 
         let page_info = PageInfo {
-            has_next_page: (offset + limit) as i32 < total_count,
-            has_previous_page: offset > 0,
+            has_next_page: ((offset + limit) as i32) < total_count,
+            has_previous_page: (offset > 0),
             start_cursor: edges.first().map(|e| e.cursor.clone()),
             end_cursor: edges.last().map(|e| e.cursor.clone()),
         };
@@ -836,7 +836,6 @@ pub fn build_schema(pool: PgPool) -> Schema<QueryRoot, MutationRoot, Subscriptio
     )
     .data(pool)
     .data(channel_loader)
-    .extension(Tracing)
     .finish()
 }
 
