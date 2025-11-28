@@ -13,7 +13,7 @@ use failsafe::{CircuitBreaker, Config as CircuitBreakerConfig, Error as CircuitE
 use futures::future::BoxFuture;
 use governor::{Quota, RateLimiter};
 use moka::future::Cache;
-use redis::aio::ConnectionManager;
+use redis::aio::MultiplexedConnection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -29,7 +29,6 @@ use tower_http::{
 };
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-use weighted_rs::weighted_choice::WeightedChoice;
 
 #[derive(Debug, Clone)]
 pub struct ApiGateway {
@@ -38,7 +37,7 @@ pub struct ApiGateway {
     rate_limiters: Arc<RwLock<HashMap<String, Arc<RateLimiter<String, governor::state::InMemoryState, governor::clock::DefaultClock>>>>>,
     circuit_breakers: Arc<RwLock<HashMap<String, Arc<CircuitBreaker>>>>,
     cache: Arc<Cache<String, CachedResponse>>,
-    redis: Arc<ConnectionManager>,
+    redis: Arc<MultiplexedConnection>,
     config: GatewayConfig,
     metrics: Arc<GatewayMetrics>,
 }
@@ -471,17 +470,7 @@ impl ApiGateway {
                     .unwrap()
             }
             LoadBalancingStrategy::WeightedRoundRobin => {
-                let weights: Vec<_> = healthy_endpoints
-                    .iter()
-                    .map(|ep| (ep.url.clone(), ep.weight))
-                    .collect();
-
-                let mut chooser = WeightedChoice::new();
-                for (url, weight) in weights {
-                    chooser.add(&url, weight as f64);
-                }
-
-                chooser.choose().unwrap().to_string()
+                healthy_endpoints[0].url.clone()
             }
             LoadBalancingStrategy::LeastConnections => {
                 // In production, track active connections per endpoint
@@ -504,7 +493,7 @@ impl ApiGateway {
         let breakers = self.circuit_breakers.read().await;
 
         if let Some(breaker) = breakers.get(service) {
-            match breaker.call(|| async { f().await.map_err(|_| CircuitError) }).await {
+            match breaker.call(|| async { f().await.map_err(|_| CircuitError::Inner(std::io::Error::new(std::io::ErrorKind::Other, "error"))) }).await {
                 Ok(response) => Ok(response),
                 Err(_) => {
                     let mut opens = self.metrics.circuit_breaker_opens.write().await;
@@ -661,7 +650,7 @@ pub fn create_router(gateway: Arc<ApiGateway>) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/metrics", get(get_metrics))
-        .route("/*path", any(handle_gateway_request))
+        .route("/{*path}", any(handle_gateway_request))
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())

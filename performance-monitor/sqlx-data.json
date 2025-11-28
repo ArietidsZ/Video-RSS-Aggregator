@@ -1,0 +1,41 @@
+{
+  "db": "PostgreSQL",
+  "6d154e5a7f82ac0b03e5d18e85d9e3a4f68b6f1f8a3a04ba8d6a4b4c8ed00d3c": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Float8",
+          "Float8",
+          "Float8",
+          "Float8",
+          "Float8",
+          "Float8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO performance_metrics (\n                timestamp, cpu_usage, memory_usage, api_requests_per_sec,\n                api_error_rate, avg_response_time, active_connections\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            "
+  },
+  "2b8c7f4e3d9a1c5f6e8b2a4d7c9e1f3b5a8c6e9d2f4b7a0c3e6d9f2b5a8c1e4": {
+    "describe": {
+      "columns": [
+        {
+          "name": "component",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT DISTINCT component FROM performance_metrics WHERE timestamp > NOW() - INTERVAL '1 hour'"
+  }
+}

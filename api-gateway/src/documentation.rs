@@ -932,7 +932,7 @@ pub async fn redoc() -> impl IntoResponse {
 }
 
 pub async fn rapidoc() -> impl IntoResponse {
-    Html(r#"
+    Html(r##"
     <!DOCTYPE html>
     <html>
       <head>
@@ -957,7 +957,7 @@ pub async fn rapidoc() -> impl IntoResponse {
         > </rapi-doc>
       </body>
     </html>
-    "#)
+    "##)
 }
 
 // API documentation router

@@ -42,13 +42,13 @@ async fn main() -> Result<()> {
     // Build router
     let app = Router::new()
         // Cache operations
-        .route("/cache/:key", get(handlers::get_cached))
-        .route("/cache/:key", put(handlers::set_cached))
-        .route("/cache/:key", delete(handlers::delete_cached))
+        .route("/cache/{key}", get(handlers::get_cached))
+        .route("/cache/{key}", put(handlers::set_cached))
+        .route("/cache/{key}", delete(handlers::delete_cached))
         .route("/cache/batch", post(handlers::batch_get))
 
         // Partitioning info
-        .route("/partition/:key", get(handlers::get_partition_info))
+        .route("/partition/{key}", get(handlers::get_partition_info))
         .route("/shards", get(handlers::list_shards))
 
         // Cache warming
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
 
         // Replication
         .route("/replicate", post(handlers::replicate_data))
-        .route("/consistency/:key", get(handlers::check_consistency))
+        .route("/consistency/{key}", get(handlers::check_consistency))
 
         // Metrics
         .route("/metrics", get(handlers::metrics))

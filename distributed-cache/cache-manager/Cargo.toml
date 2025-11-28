@@ -5,16 +5,16 @@ edition = "2021"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.47", features = ["full"] }
 async-trait = "0.1"
 
 # Web framework
-axum = "0.7"
-tower = "0.4"
-tower-http = { version = "0.5", features = ["trace", "cors", "compression"] }
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "compression"] }
 
 # Redis
-redis = { version = "0.24", features = ["tokio-comp", "cluster-async", "connection-manager"] }
+redis = { version = "0.32", features = ["tokio-comp", "cluster-async", "connection-manager"] }
 redis-cluster-async = "0.7"
 bb8 = "0.8"
 bb8-redis = "0.14"
@@ -37,11 +37,11 @@ murmur3 = "0.5"
 
 # Utilities
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 config = "0.13"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4.38", features = ["serde"] }
 futures = "0.3"
 bytes = "1.5"
 
