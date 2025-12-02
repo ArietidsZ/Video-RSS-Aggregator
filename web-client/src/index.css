@@ -1,11 +1,11 @@
+/* Vidstack Player Styles */
+@import 'vidstack/styles/defaults.css';
+@import 'vidstack/styles/base.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Vidstack Player Styles */
-@import 'vidstack/player/styles/default/theme.css';
-@import 'vidstack/player/styles/default/layouts/video.css';
-
 body {
-    @apply bg-gray-900 text-white;
+    @apply bg-telegram-bg text-telegram-text antialiased;
 }

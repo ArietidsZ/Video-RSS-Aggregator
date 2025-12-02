@@ -10,10 +10,25 @@ fn main() {
     // Build C++ library with CMake
     let dst = cmake::Config::new(".")
         .define("CMAKE_BUILD_TYPE", "Release")
+        .define("CMAKE_POLICY_VERSION_MINIMUM", "3.5")
+        .define("OPENMP_RUNTIME", "NONE")
+        .define("WITH_OPENMP", "OFF")
+        .define("WITH_MKL", "OFF")
+        .define("DNNL_CPU_RUNTIME", "SEQ")
         .define("USE_CUDA", if cuda_available { "ON" } else { "OFF" })
         .define("USE_ROCM", if rocm_available { "ON" } else { "OFF" })
         .define("USE_METAL", if metal_available { "ON" } else { "OFF" })
         .build();
+
+    // Compile Protobufs
+    tonic_build::configure()
+        .build_server(false)
+        .build_client(true)
+        .compile(
+            &["../proto/events.proto"],
+            &["../proto"],
+        )
+        .unwrap_or_else(|e| println!("cargo:warning=Failed to compile protos: {}", e));
 
     // Link the built library
     println!("cargo:rustc-link-search=native={}/lib", dst.display());

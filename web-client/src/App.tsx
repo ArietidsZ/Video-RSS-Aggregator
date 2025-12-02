@@ -1,49 +1,62 @@
-import { createSignal } from 'solid-js';
-import VideoPlayer from './components/VideoPlayer';
-import FeedList from './components/FeedList';
+import { createSignal, For } from 'solid-js';
+import Layout from './components/Layout';
+import FeedList, { type Feed } from './components/FeedList';
+import VideoBubble, { type VideoItem } from './components/VideoBubble';
 
 function App() {
-  const [currentVideo, setCurrentVideo] = createSignal<{ url: string, title: string } | null>(null);
-  const [items] = createSignal([
-    {
-      id: '1',
-      title: 'Sample Video: TED Talk',
-      url: 'https://www.youtube.com/watch?v=d4eDWc8g0e0', // Example
-      description: 'This is a sample video description to demonstrate the UI layout.'
-    },
-    // Add more mock items or fetch from API
+  const [selectedFeedId, setSelectedFeedId] = createSignal<string | null>('1');
+
+  // Mock Feeds
+  const [feeds] = createSignal<Feed[]>([
+    { id: '1', title: 'Tech News Daily', unreadCount: 3, lastUpdated: '10:42 AM' },
+    { id: '2', title: 'Rust Programming', unreadCount: 0, lastUpdated: 'Yesterday' },
+    { id: '3', title: 'AI Research', unreadCount: 12, lastUpdated: 'Mon' },
+    { id: '4', title: 'Cooking Channel', unreadCount: 0, lastUpdated: 'Sun' },
   ]);
 
-  // In real app: fetch items from Gateway API
-  // onMount(async () => {
-  //   const res = await fetch('http://localhost:8080/api/feeds/items');
-  //   const data = await res.json();
-  //   setItems(data);
-  // });
+  // Mock Videos (Messages)
+  const [videos] = createSignal<VideoItem[]>([
+    {
+      id: '101',
+      title: 'The Future of AI Agents',
+      url: 'https://www.w3schools.com/html/mov_bbb.mp4', // Sample video
+      feedTitle: 'Tech News Daily',
+      publishedAt: '10:42 AM',
+      summary: 'This video discusses the rapid evolution of AI agents, focusing on their ability to perform complex tasks autonomously. Key points include:\n• Shift from chat-based to agentic workflows\n• Integration with external tools\n• Future implications for software development'
+    },
+    {
+      id: '102',
+      title: 'Understanding Rust Ownership',
+      url: 'https://www.w3schools.com/html/movie.mp4',
+      feedTitle: 'Rust Programming',
+      publishedAt: 'Yesterday',
+      summary: 'A deep dive into Rust\'s ownership system. The speaker explains how move semantics and borrowing work under the hood to ensure memory safety without a garbage collector.'
+    }
+  ]);
 
   return (
-    <div class="min-h-screen bg-gray-900 text-white">
-      <header class="bg-gray-800 p-4 shadow-md">
-        <h1 class="text-2xl font-bold text-blue-400">Video RSS Aggregator</h1>
-      </header>
-
-      <main class="container mx-auto py-8">
-        {currentVideo() && (
-          <div class="mb-8 p-4">
-            <div class="aspect-video bg-black rounded-lg overflow-hidden shadow-2xl max-w-4xl mx-auto">
-              <VideoPlayer src={currentVideo()!.url} title={currentVideo()!.title} />
-            </div>
-            <h2 class="text-xl font-semibold mt-4 text-center">{currentVideo()!.title}</h2>
-          </div>
-        )}
-
-        <h2 class="text-xl font-semibold px-4 mb-4">Latest Videos</h2>
+    <Layout
+      sidebar={
         <FeedList
-          items={items()}
-          onPlay={(url, title) => setCurrentVideo({ url, title })}
+          feeds={feeds()}
+          selectedFeedId={selectedFeedId()}
+          onSelectFeed={setSelectedFeedId}
         />
-      </main>
-    </div>
+      }
+    >
+      <div class="flex flex-col justify-end min-h-full pb-4">
+        {/* Date Separator Example */}
+        <div class="flex justify-center mb-6">
+          <span class="bg-black/20 text-white/60 text-xs px-3 py-1 rounded-full backdrop-blur-sm">
+            Today
+          </span>
+        </div>
+
+        <For each={videos()}>
+          {(video) => <VideoBubble video={video} />}
+        </For>
+      </div>
+    </Layout>
   );
 }
 
