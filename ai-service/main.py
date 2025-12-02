@@ -1,16 +1,20 @@
 import asyncio
 import os
+import sys
 import nats
 from nats.errors import ConnectionClosedError, TimeoutError, NoServersError
+
+# Add generated protos to path
+sys.path.append(os.path.join(os.getcwd(), "gen/python"))
+
 from video_rss.events.v1 import events_pb2
-from transcriber import Transcriber
 from summarizer import Summarizer
-from vector_store import VectorStore
+# from vector_store import VectorStore # Temporarily disabled until implemented
 
 async def main():
     nats_url = os.getenv("NATS_URL", "nats://localhost:4222")
     
-    print(f"Connecting to NATS at {nats_url}...")
+    print(f"AI Service connecting to NATS at {nats_url}...")
     try:
         nc = await nats.connect(nats_url)
         js = nc.jetstream()
@@ -25,54 +29,39 @@ async def main():
     except Exception as e:
         print(f"Stream creation warning (might exist): {e}")
 
-    transcriber = Transcriber()
     summarizer = Summarizer()
-    vector_store = VectorStore()
+    # vector_store = VectorStore()
 
     async def message_handler(msg):
-        subject = msg.subject
-        data = msg.data
-        
         try:
-            event = events_pb2.VideoDiscoveredEvent()
-            event.ParseFromString(data)
-            print(f"Processing video: {event.title} ({event.video_id})")
+            event = events_pb2.TranscriptionCompletedEvent()
+            event.ParseFromString(msg.data)
+            print(f"Received transcription for video: {event.video_id}")
             
-            # 1. Transcribe
-            transcription = await transcriber.transcribe(event.url)
-            
-            # Publish Transcription Event
-            t_event = events_pb2.TranscriptionCompletedEvent(
-                video_id=event.video_id,
-                transcription_text=transcription["text"],
-                language=transcription["language"]
-            )
-            await js.publish("video.transcribed", t_event.SerializeToString())
-            print(f"Published video.transcribed for {event.video_id}")
-
-            # 2. Summarize
-            summary = await summarizer.summarize(transcription["text"])
+            # Summarize
+            print(f"Summarizing text length: {len(event.transcription_text)}")
+            summary = await summarizer.summarize(event.transcription_text)
             
             # Publish Summary Event
-            s_event = events_pb2.SummarizationCompletedEvent(
-                video_id=event.video_id,
-                summary_text=summary["summary"],
-                key_points=summary["key_points"]
-            )
+            s_event = events_pb2.SummarizationCompletedEvent()
+            s_event.video_id = event.video_id
+            s_event.summary_text = summary["summary"]
+            s_event.key_points.extend(summary["key_points"])
+            
             await js.publish("video.summarized", s_event.SerializeToString())
             print(f"Published video.summarized for {event.video_id}")
 
-            # 3. Store Embeddings
-            await vector_store.store_embedding(event.video_id, summary["summary"])
+            # Store Embeddings (Future work)
+            # await vector_store.store_embedding(event.video_id, summary["summary"])
             
             await msg.ack()
         except Exception as e:
             print(f"Error processing message: {e}")
-            await msg.nak()
+            # await msg.nak()
 
-    # Subscribe to video.discovered
-    print("Subscribing to video.discovered...")
-    await js.subscribe("video.discovered", cb=message_handler, durable="ai_processor")
+    # Subscribe to video.transcribed
+    print("Subscribing to video.transcribed...")
+    await js.subscribe("video.transcribed", cb=message_handler, durable="ai_summarizer")
 
     # Keep running
     while True:
