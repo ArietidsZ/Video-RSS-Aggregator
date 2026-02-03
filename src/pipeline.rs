@@ -145,7 +145,8 @@ impl Pipeline {
         source_url: &str,
         title: Option<String>,
     ) -> Result<ProcessReport> {
-        let audio_path = media::prepare_audio_from_source(source_url, &self.storage_dir).await?;
+        let audio_path =
+            media::prepare_audio_from_source(&self.client, source_url, &self.storage_dir).await?;
         let audio_path_str = audio_path
             .to_str()
             .ok_or_else(|| anyhow!("Invalid audio path"))?
