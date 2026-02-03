@@ -1,6 +1,7 @@
 /target/
 /.data/
 /tmp/
+/backends/build/
 *.log
 *.tmp
 *.raw
