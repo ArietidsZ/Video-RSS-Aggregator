@@ -8,6 +8,8 @@ Only the files listed below are retained. Any file not listed here must be remov
 /.gitignore
 /README.md
 /PROJECT_STRUCTURE.md
+/backends/CMakeLists.txt
+/backends/src/vra_backend.cpp
 /src/main.rs
 /src/config.rs
 /src/pipeline.rs

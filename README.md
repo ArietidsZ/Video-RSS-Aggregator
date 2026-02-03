@@ -37,6 +37,25 @@ Required C symbols:
 - `vra_backend_summarize(text: *const c_char, output_json: *mut *const c_char) -> i32`
 - `vra_backend_free_string(ptr: *const c_char)`
 
+## Backend Build
+The native wrapper lives in `backends/` and links against `whisper.cpp` and `llama.cpp`
+that you build with the desired accelerator backend (Metal/MPS, CoreML, CUDA, ROCm, oneAPI).
+It expects recent C APIs from both projects; adjust `backends/src/vra_backend.cpp` if you use older versions.
+
+Example build:
+```bash
+cmake -S backends -B backends/build \
+  -DVRA_BACKEND_KIND=cuda \
+  -DWHISPER_CPP_INCLUDE_DIR=/opt/whisper.cpp/include \
+  -DWHISPER_CPP_LIB_DIR=/opt/whisper.cpp/build \
+  -DLLAMA_CPP_INCLUDE_DIR=/opt/llama.cpp/include \
+  -DLLAMA_CPP_LIB_DIR=/opt/llama.cpp/build
+
+cmake --build backends/build --config Release
+```
+The build outputs `vra_<backend>_backend` with the platform-specific prefix/suffix
+(e.g., `libvra_cuda_backend.so`, `vra_cuda_backend.dll`, `libvra_mps_backend.dylib`).
+
 ## Environment Variables
 - `DATABASE_URL` (required)
 - `BIND_ADDRESS` (default: `0.0.0.0:8080`)
@@ -47,6 +66,10 @@ Required C symbols:
 - `VRA_ACCEL_LIB_DIR` (directory containing backend library)
 - `VRA_ACCEL_LIB_NAME` (explicit library file name)
 - `VRA_ACCEL_DEVICE` (device selector passed to backend)
+- `VRA_TRANSCRIBE_ACCEL`, `VRA_SUMMARIZE_ACCEL` (override backend per purpose)
+- `VRA_TRANSCRIBE_LIB_DIR`, `VRA_SUMMARIZE_LIB_DIR` (override library directory per purpose)
+- `VRA_TRANSCRIBE_LIB_NAME`, `VRA_SUMMARIZE_LIB_NAME` (override library name per purpose)
+- `VRA_TRANSCRIBE_DEVICE`, `VRA_SUMMARIZE_DEVICE` (override device selector per purpose)
 - `VRA_TRANSCRIBE_MODEL_PATH` (required for transcription)
 - `VRA_SUMMARIZE_MODEL_PATH` (required for summarization)
 - `VRA_VERIFY_FEED_URL`, `VRA_VERIFY_AUDIO_PATH`, `VRA_VERIFY_AUDIO_URL`, `VRA_VERIFY_VIDEO_URL` (verification inputs)

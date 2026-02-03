@@ -39,23 +39,22 @@ pub struct AccelConfig {
     pub lib_dir: Option<PathBuf>,
     pub lib_name: Option<String>,
     pub device: Option<String>,
+    pub transcribe: AccelOverride,
+    pub summarize: AccelOverride,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AccelOverride {
+    pub preference: Option<AccelPreference>,
+    pub lib_dir: Option<PathBuf>,
+    pub lib_name: Option<String>,
+    pub device: Option<String>,
 }
 
 impl AccelConfig {
     pub fn from_env() -> Self {
-        let preference = match env::var("VRA_ACCEL")
-            .unwrap_or_else(|_| "auto".to_string())
-            .to_lowercase()
-            .as_str()
-        {
-            "mps" => AccelPreference::Mps,
-            "coreml" => AccelPreference::CoreMl,
-            "cuda" => AccelPreference::Cuda,
-            "rocm" => AccelPreference::Rocm,
-            "oneapi" => AccelPreference::OneApi,
-            "cpu" => AccelPreference::Cpu,
-            _ => AccelPreference::Auto,
-        };
+        let preference =
+            parse_preference(&env::var("VRA_ACCEL").unwrap_or_else(|_| "auto".to_string()));
 
         let allow_cpu = env::var("VRA_ALLOW_CPU")
             .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
@@ -65,12 +64,84 @@ impl AccelConfig {
         let lib_name = env::var("VRA_ACCEL_LIB_NAME").ok();
         let device = env::var("VRA_ACCEL_DEVICE").ok();
 
+        let transcribe = AccelOverride {
+            preference: env::var("VRA_TRANSCRIBE_ACCEL")
+                .ok()
+                .map(|value| parse_preference(&value)),
+            lib_dir: env::var("VRA_TRANSCRIBE_LIB_DIR").ok().map(PathBuf::from),
+            lib_name: env::var("VRA_TRANSCRIBE_LIB_NAME").ok(),
+            device: env::var("VRA_TRANSCRIBE_DEVICE").ok(),
+        };
+
+        let summarize = AccelOverride {
+            preference: env::var("VRA_SUMMARIZE_ACCEL")
+                .ok()
+                .map(|value| parse_preference(&value)),
+            lib_dir: env::var("VRA_SUMMARIZE_LIB_DIR").ok().map(PathBuf::from),
+            lib_name: env::var("VRA_SUMMARIZE_LIB_NAME").ok(),
+            device: env::var("VRA_SUMMARIZE_DEVICE").ok(),
+        };
+
         Self {
             preference,
             allow_cpu,
             lib_dir,
             lib_name,
             device,
+            transcribe,
+            summarize,
+        }
+    }
+
+    fn preference_for(&self, purpose: BackendPurpose) -> AccelPreference {
+        match purpose {
+            BackendPurpose::Transcription => self.transcribe.preference.unwrap_or(self.preference),
+            BackendPurpose::Summarization => self.summarize.preference.unwrap_or(self.preference),
+        }
+    }
+
+    fn lib_dir_for(&self, purpose: BackendPurpose) -> Option<PathBuf> {
+        match purpose {
+            BackendPurpose::Transcription => self
+                .transcribe
+                .lib_dir
+                .clone()
+                .or_else(|| self.lib_dir.clone()),
+            BackendPurpose::Summarization => self
+                .summarize
+                .lib_dir
+                .clone()
+                .or_else(|| self.lib_dir.clone()),
+        }
+    }
+
+    fn lib_name_for(&self, purpose: BackendPurpose) -> Option<String> {
+        match purpose {
+            BackendPurpose::Transcription => self
+                .transcribe
+                .lib_name
+                .clone()
+                .or_else(|| self.lib_name.clone()),
+            BackendPurpose::Summarization => self
+                .summarize
+                .lib_name
+                .clone()
+                .or_else(|| self.lib_name.clone()),
+        }
+    }
+
+    fn device_for(&self, purpose: BackendPurpose) -> Option<String> {
+        match purpose {
+            BackendPurpose::Transcription => self
+                .transcribe
+                .device
+                .clone()
+                .or_else(|| self.device.clone()),
+            BackendPurpose::Summarization => self
+                .summarize
+                .device
+                .clone()
+                .or_else(|| self.device.clone()),
         }
     }
 }
@@ -86,23 +157,21 @@ impl AccelBackend {
         accel: &AccelConfig,
         extra_config: serde_json::Value,
     ) -> Result<Self> {
-        let candidates = backend_candidates(accel.preference, accel.allow_cpu);
+        let candidates = backend_candidates(accel.preference_for(purpose), accel.allow_cpu);
         let mut last_error = None;
+        let device = accel.device_for(purpose);
+        let lib_dir = accel.lib_dir_for(purpose);
+        let lib_name = accel.lib_name_for(purpose);
 
         for kind in candidates {
             let config_json = serde_json::json!({
                 "backend": format_backend(kind),
                 "purpose": format_purpose(purpose),
-                "device": accel.device,
+                "device": device,
                 "extra": extra_config,
             });
 
-            match BackendLibrary::load(
-                kind,
-                accel.lib_dir.clone(),
-                accel.lib_name.clone(),
-                &config_json,
-            ) {
+            match BackendLibrary::load(kind, lib_dir.clone(), lib_name.clone(), &config_json) {
                 Ok(library) => {
                     return Ok(Self { kind, library });
                 }
@@ -171,5 +240,17 @@ fn format_purpose(purpose: BackendPurpose) -> &'static str {
     match purpose {
         BackendPurpose::Transcription => "transcription",
         BackendPurpose::Summarization => "summarization",
+    }
+}
+
+fn parse_preference(value: &str) -> AccelPreference {
+    match value.to_lowercase().as_str() {
+        "mps" => AccelPreference::Mps,
+        "coreml" => AccelPreference::CoreMl,
+        "cuda" => AccelPreference::Cuda,
+        "rocm" => AccelPreference::Rocm,
+        "oneapi" => AccelPreference::OneApi,
+        "cpu" => AccelPreference::Cpu,
+        _ => AccelPreference::Auto,
     }
 }
