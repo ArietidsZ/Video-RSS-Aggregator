@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
+use reqwest::Client;
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -14,13 +15,17 @@ pub async fn ensure_storage_dirs(storage_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub async fn prepare_audio_from_source(source: &str, storage_dir: &Path) -> Result<PathBuf> {
+pub async fn prepare_audio_from_source(
+    client: &Client,
+    source: &str,
+    storage_dir: &Path,
+) -> Result<PathBuf> {
     ensure_storage_dirs(storage_dir).await?;
 
     let id = Uuid::new_v4();
     let raw_path = storage_dir.join("raw").join(id.to_string());
     let input_path = if is_url(source) {
-        download_to_file(source, &raw_path).await?;
+        download_to_file(client, source, &raw_path).await?;
         raw_path
     } else {
         let path = PathBuf::from(source);
@@ -38,8 +43,8 @@ pub async fn prepare_audio_from_source(source: &str, storage_dir: &Path) -> Resu
     Ok(output_path)
 }
 
-pub async fn download_to_file(url: &str, destination: &Path) -> Result<()> {
-    let response = reqwest::get(url).await?.error_for_status()?;
+pub async fn download_to_file(client: &Client, url: &str, destination: &Path) -> Result<()> {
+    let response = client.get(url).send().await?.error_for_status()?;
     let mut stream = response.bytes_stream();
 
     if let Some(parent) = destination.parent() {
