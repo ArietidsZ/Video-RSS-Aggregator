@@ -22,6 +22,17 @@ export VRA_ACCEL_LIB_DIR="/opt/vra-backends"
 cargo run --release -- serve --bind 0.0.0.0:8080
 ```
 
+## Apple Silicon Quick Start (Minimum Steps)
+```bash
+cargo run --release -- setup
+export DATABASE_URL="postgresql://user:pass@localhost:5432/video_rss"
+export VRA_TRANSCRIBE_MODEL_PATH="/path/to/whisper.gguf"
+export VRA_SUMMARIZE_MODEL_PATH="/path/to/llama.gguf"
+cargo run --release -- serve --bind 0.0.0.0:8080
+```
+The setup command builds MPS (transcription) and CoreML (summarization) backends into `.data/backends`
+and becomes the default on macOS, so no additional flags are needed.
+
 ## Acceleration Backends
 This binary loads platform-specific accelerator plugins via a small C ABI.
 Provide the shared library in `VRA_ACCEL_LIB_DIR` or `VRA_ACCEL_LIB_NAME`.
@@ -70,6 +81,9 @@ The build outputs `vra_<backend>_backend` with the platform-specific prefix/suff
 - `VRA_TRANSCRIBE_LIB_DIR`, `VRA_SUMMARIZE_LIB_DIR` (override library directory per purpose)
 - `VRA_TRANSCRIBE_LIB_NAME`, `VRA_SUMMARIZE_LIB_NAME` (override library name per purpose)
 - `VRA_TRANSCRIBE_DEVICE`, `VRA_SUMMARIZE_DEVICE` (override device selector per purpose)
+- `VRA_WHISPER_REPO`, `VRA_LLAMA_REPO` (override setup git URLs)
+- `VRA_WHISPER_REF`, `VRA_LLAMA_REF` (checkout a specific git ref during setup)
+- `VRA_WHISPER_CMAKE_ARGS`, `VRA_LLAMA_CMAKE_ARGS`, `VRA_BACKEND_CMAKE_ARGS` (extra CMake flags)
 - `VRA_TRANSCRIBE_MODEL_PATH` (required for transcription)
 - `VRA_SUMMARIZE_MODEL_PATH` (required for summarization)
 - `VRA_VERIFY_FEED_URL`, `VRA_VERIFY_AUDIO_PATH`, `VRA_VERIFY_AUDIO_URL`, `VRA_VERIFY_VIDEO_URL` (verification inputs)

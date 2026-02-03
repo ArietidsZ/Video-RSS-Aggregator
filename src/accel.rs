@@ -60,11 +60,14 @@ impl AccelConfig {
             .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
 
-        let lib_dir = env::var("VRA_ACCEL_LIB_DIR").ok().map(PathBuf::from);
+        let lib_dir = env::var("VRA_ACCEL_LIB_DIR")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| Some(PathBuf::from(".data/backends")));
         let lib_name = env::var("VRA_ACCEL_LIB_NAME").ok();
         let device = env::var("VRA_ACCEL_DEVICE").ok();
 
-        let transcribe = AccelOverride {
+        let mut transcribe = AccelOverride {
             preference: env::var("VRA_TRANSCRIBE_ACCEL")
                 .ok()
                 .map(|value| parse_preference(&value)),
@@ -73,7 +76,7 @@ impl AccelConfig {
             device: env::var("VRA_TRANSCRIBE_DEVICE").ok(),
         };
 
-        let summarize = AccelOverride {
+        let mut summarize = AccelOverride {
             preference: env::var("VRA_SUMMARIZE_ACCEL")
                 .ok()
                 .map(|value| parse_preference(&value)),
@@ -81,6 +84,15 @@ impl AccelConfig {
             lib_name: env::var("VRA_SUMMARIZE_LIB_NAME").ok(),
             device: env::var("VRA_SUMMARIZE_DEVICE").ok(),
         };
+
+        if cfg!(target_os = "macos") {
+            if transcribe.preference.is_none() {
+                transcribe.preference = Some(AccelPreference::Mps);
+            }
+            if summarize.preference.is_none() {
+                summarize.preference = Some(AccelPreference::CoreMl);
+            }
+        }
 
         Self {
             preference,

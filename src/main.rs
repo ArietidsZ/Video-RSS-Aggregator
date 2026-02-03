@@ -18,6 +18,7 @@ mod ffi;
 mod media;
 mod pipeline;
 mod rss;
+mod setup;
 mod storage;
 mod summarize;
 mod transcribe;
@@ -37,6 +38,7 @@ enum Command {
         bind: Option<String>,
     },
     Verify,
+    Setup,
 }
 
 #[tokio::main]
@@ -49,6 +51,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Serve { bind } => serve(bind).await,
         Command::Verify => verify::run().await,
+        Command::Setup => setup::run().await,
     }
 }
 

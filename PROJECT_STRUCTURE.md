@@ -5,6 +5,7 @@ Only the files listed below are retained. Any file not listed here must be remov
 /Cargo.toml
 /Cargo.lock
 /.git/
+/.data/
 /.gitignore
 /README.md
 /PROJECT_STRUCTURE.md
@@ -23,3 +24,4 @@ Only the files listed below are retained. Any file not listed here must be remov
 /src/accel.rs
 /src/ffi.rs
 /src/verify.rs
+/src/setup.rs
