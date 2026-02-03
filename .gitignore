@@ -1,37 +1,24 @@
-# General
-.DS_Store
-.env
+/target/
+/.data/
+/tmp/
 *.log
+*.tmp
+*.raw
+*.wav
+*.mp4
+*.mkv
+*.webm
+*.m4a
+*.srt
+*.vtt
+*.jsonl
+*.bin
+*.model
+*.onnx
+*.gguf
+*.ggml
+.DS_Store
+Thumbs.db
 node_modules/
-dist/
-build/
-target/
-__pycache__/
-*.pyc
 .venv/
-venv/
-
-obj/
-
-# IDEs
-.vscode/
-.idea/
-
-# Rust
-ingestion-service/target/
-**/*.rs.bk
-
-# Go
-feed-service/bin/
-gateway-service/bin/
-
-# Python
-ai-service/__pycache__/
-ai-service/.venv/
-
-# Node
-web-client/node_modules/
-web-client/dist/
-
-# Docker
-docker-data/
+__pycache__/

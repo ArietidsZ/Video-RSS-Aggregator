@@ -1,6 +1,0 @@
-grpcio
-grpcio-tools
-# vllm
-# faster-whisper
-nats-py
-pydantic
