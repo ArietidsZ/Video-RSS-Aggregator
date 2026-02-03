@@ -1,123 +1,59 @@
-# Video RSS Aggregator
+# Video RSS Aggregator (Native)
 
-Video content aggregation and summarization system supporting YouTube, Bilibili (哔哩哔哩), TikTok, Douyin (抖音), and Kuaishou (快手).
+Cross-platform video RSS ingestion, transcription, and summarization with native acceleration.
 
-## Prerequisites
+## Goals
+- Native acceleration on macOS (MPS + CoreML/NPU), Windows (CUDA/ROCm/oneAPI), Linux (CUDA/ROCm/oneAPI).
+- Minimal, efficient codebase with a single Rust binary.
+- Deterministic storage in PostgreSQL and RSS output.
 
-- Docker & Docker Compose
-- NVIDIA GPU with CUDA 11.8+ (optional, for GPU acceleration)
-- 16GB+ RAM
-- Redis 7.0+
+## Requirements
+- Rust 1.80+ (edition 2024)
 - PostgreSQL 15+
-- Python 3.8+
-- Node.js 14+
+- ffmpeg on PATH for audio extraction
+- Accelerator backend libraries (see below)
 
-## Architecture
-
-Multi-language implementation optimized for different components:
-
-- **Rust** - RSS server, hardware detection, metadata extraction
-- **C++** - Audio processing, transcription engine
-- **Python** - ML models for content analysis and summarization
-- **Java** - Apache Flink stream processing
-
-## Installation
-
+## Quick Start
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/video-rss-aggregator.git
-cd video-rss-aggregator
+export DATABASE_URL="postgresql://user:pass@localhost:5432/video_rss"
+export VRA_ACCEL=auto
+export VRA_ACCEL_LIB_DIR="/opt/vra-backends"
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your settings
-
-# Deploy with provided script
-./deploy.sh
-
-# Or deploy components manually:
-cd distributed-cache
-./init-cluster.sh
-
-cd ../model-serving
-./deploy.sh
-
-cd ../api-gateway
-cargo run --release
-
-cd ../rss-server
-cargo run --release
+cargo run --release -- serve --bind 0.0.0.0:8080
 ```
 
-## Docker Deployment
+## Acceleration Backends
+This binary loads platform-specific accelerator plugins via a small C ABI.
+Provide the shared library in `VRA_ACCEL_LIB_DIR` or `VRA_ACCEL_LIB_NAME`.
 
+Default library names:
+- macOS: `libvra_coreml_backend.dylib`, `libvra_mps_backend.dylib`
+- Windows: `vra_cuda_backend.dll`, `vra_rocm_backend.dll`, `vra_oneapi_backend.dll`
+- Linux: `libvra_cuda_backend.so`, `libvra_rocm_backend.so`, `libvra_oneapi_backend.so`
+
+Required C symbols:
+- `vra_backend_init(config_json: *const c_char) -> i32`
+- `vra_backend_transcribe(audio_path: *const c_char, output_json: *mut *const c_char) -> i32`
+- `vra_backend_summarize(text: *const c_char, output_json: *mut *const c_char) -> i32`
+- `vra_backend_free_string(ptr: *const c_char)`
+
+## Environment Variables
+- `DATABASE_URL` (required)
+- `BIND_ADDRESS` (default: `0.0.0.0:8080`)
+- `API_KEY` (optional bearer token)
+- `VRA_STORAGE_DIR` (default: `.data`)
+- `VRA_ACCEL` = `auto|mps|coreml|cuda|rocm|oneapi|cpu`
+- `VRA_ALLOW_CPU` = `0|1` (default: `0`)
+- `VRA_ACCEL_LIB_DIR` (directory containing backend library)
+- `VRA_ACCEL_LIB_NAME` (explicit library file name)
+- `VRA_ACCEL_DEVICE` (device selector passed to backend)
+- `VRA_TRANSCRIBE_MODEL_PATH` (required for transcription)
+- `VRA_SUMMARIZE_MODEL_PATH` (required for summarization)
+- `VRA_VERIFY_FEED_URL`, `VRA_VERIFY_AUDIO_PATH`, `VRA_VERIFY_AUDIO_URL`, `VRA_VERIFY_VIDEO_URL` (verification inputs)
+
+## Verification
+Run OS-level verification with real data only:
 ```bash
-docker-compose -f distributed-cache/docker-compose.yml up -d
-docker-compose -f model-serving/docker-compose.triton.yml up -d
-docker-compose -f realtime-streaming/docker-compose.kafka.yml up -d
+cargo run --release -- verify
 ```
-
-## Kubernetes Deployment
-
-```bash
-kubectl apply -f model-serving/k8s/
-```
-
-## API Access
-
-- GraphQL: http://localhost:8080/graphql
-- REST API: http://localhost:8080/api/v3/
-- WebSocket: ws://localhost:8080/ws
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000
-
-## API Usage
-
-### Python SDK
-```python
-from video_rss_aggregator import Client
-
-client = Client(api_key="your-api-key")
-summary = client.summarize_video(url="https://...")
-```
-
-### TypeScript SDK
-```typescript
-import { VideoRSSClient } from '@video-rss-aggregator/sdk';
-
-const client = new VideoRSSClient({ apiKey: 'your-api-key' });
-const summary = await client.summarizeVideo({ url: 'https://...' });
-```
-
-### REST API
-```bash
-curl -X POST http://localhost:8080/api/v3/summarize \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://www.youtube.com/watch?v=..."}'
-```
-
-## Components
-
-- `hardware-detector/` - Hardware detection and configuration
-- `video-metadata-extractor/` - Platform API integration
-- `audio-processor/` - Audio extraction with optional GPU acceleration
-- `transcription-engine/` - Speech-to-text processing
-- `video-content-analyzer/` - Video content analysis
-- `summarization-engine/` - Text summarization models
-- `rss-server/` - RSS feed generation server
-- `distributed-cache/` - Redis cluster caching
-- `model-serving/` - Model deployment with Triton
-- `realtime-streaming/` - WebSocket/WebRTC streaming
-- `api-gateway/` - API routing and management
-- `security/` - Authentication and authorization
-- `content-filter/` - Content moderation
-- `performance-monitor/` - Metrics collection
-
-## License
-
-Apache 2.0 - See LICENSE file for details.
-
-## Disclaimer
-
-Please ensure compliance with platform terms of service and copyright laws when using this system.
+If any required real input is missing, verification fails with a clear error.
