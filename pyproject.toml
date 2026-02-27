@@ -1,0 +1,27 @@
+[project]
+name = "video-rss-aggregator"
+version = "0.1.0"
+description = "Intelligent video summarization and RSS feed generation using Qwen3 models"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+dependencies = [
+    "qwen-asr[vllm]",
+    "vllm>=0.8.5",
+    "torch",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "asyncpg>=0.30",
+    "httpx>=0.28",
+    "feedparser>=6.0",
+    "click>=8.1",
+]
+
+[project.scripts]
+vra = "vra.__main__:cli"
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["vra*"]
