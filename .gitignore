@@ -1,7 +1,5 @@
-/target/
 /.data/
 /tmp/
-/backends/build/
 *.log
 *.tmp
 *.raw
@@ -20,6 +18,10 @@
 *.ggml
 .DS_Store
 Thumbs.db
-node_modules/
-.venv/
 __pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
