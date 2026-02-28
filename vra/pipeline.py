@@ -91,7 +91,9 @@ class Pipeline:
             if not source_url:
                 continue
 
-            video_id = await self._db.upsert_video(feed_id, guid, title, source_url, pub_dt)
+            video_id = await self._db.upsert_video(
+                feed_id, guid, title, source_url, pub_dt
+            )
             report.item_count += 1
 
             if process:
@@ -101,11 +103,15 @@ class Pipeline:
 
         return report
 
-    async def process_source(self, source_url: str, title: str | None = None) -> ProcessReport:
+    async def process_source(
+        self, source_url: str, title: str | None = None
+    ) -> ProcessReport:
         video_id = await self._db.upsert_video(None, None, title, source_url, None)
         return await self._process_with_video(video_id, source_url, title)
 
-    async def rss_feed(self, title: str, link: str, description: str, limit: int = 20) -> str:
+    async def rss_feed(
+        self, title: str, link: str, description: str, limit: int = 20
+    ) -> str:
         records = await self._db.latest_summaries(limit)
         return render_feed(title, link, description, records)
 
@@ -119,8 +125,15 @@ class Pipeline:
         source_url: str,
         title: str | None,
     ) -> ProcessReport:
-        audio_path = await prepare_audio(self._client, source_url, self._config.storage_dir)
-        audio_str = str(audio_path)
+        prepared = await prepare_audio(
+            self._client, source_url, self._config.storage_dir
+        )
+        resolved_title = title or prepared.title
+
+        if resolved_title and resolved_title != title:
+            await self._db.upsert_video(None, None, resolved_title, source_url, None)
+
+        audio_str = str(prepared.audio_path)
 
         tr = await asyncio.to_thread(self._transcriber.transcribe, audio_str)
         sr = await asyncio.to_thread(self._summarizer.summarize, tr.text)
@@ -128,12 +141,15 @@ class Pipeline:
         await self._db.insert_transcript(video_id, tr)
         await self._db.insert_summary(video_id, sr)
 
-        return ProcessReport(source_url=source_url, title=title, transcription=tr, summary=sr)
+        return ProcessReport(
+            source_url=source_url, title=resolved_title, transcription=tr, summary=sr
+        )
 
 
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
 
 def _pick_source_url(entry) -> str | None:
     enclosures = entry.get("enclosures", [])
@@ -147,6 +163,7 @@ def _pick_source_url(entry) -> str | None:
 
 def _struct_to_dt(st):
     from datetime import datetime, timezone
+
     try:
         return datetime(*st[:6], tzinfo=timezone.utc)
     except Exception:
