@@ -4,11 +4,11 @@ import os
 from dataclasses import asdict
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
-from .pipeline import Pipeline
+from service_pipeline import Pipeline
 
 
 class IngestRequest(BaseModel):
@@ -29,7 +29,9 @@ def create_app(pipeline: Pipeline, api_key: str | None = None) -> FastAPI:
     rss_link = os.environ.get("VRA_RSS_LINK", "http://localhost:8080/rss")
     rss_desc = os.environ.get("VRA_RSS_DESCRIPTION", "Video summaries")
 
-    def _check_auth(authorization: str | None = Header(None), x_api_key: str | None = Header(None)):
+    def _check_auth(
+        authorization: str | None = Header(None), x_api_key: str | None = Header(None)
+    ):
         if api_key is None:
             return
         token = None
@@ -57,7 +59,9 @@ def create_app(pipeline: Pipeline, api_key: str | None = None) -> FastAPI:
         return {
             "source_url": report.source_url,
             "title": report.title,
-            "transcription": asdict(report.transcription) if report.transcription else None,
+            "transcription": asdict(report.transcription)
+            if report.transcription
+            else None,
             "summary": asdict(report.summary) if report.summary else None,
         }
 

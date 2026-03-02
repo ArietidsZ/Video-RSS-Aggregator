@@ -7,7 +7,7 @@ from threading import Lock
 import torch
 from qwen_asr import Qwen3ASRModel
 
-from .config import Config
+from core_config import Config
 
 log = logging.getLogger(__name__)
 
@@ -42,8 +42,10 @@ class TranscriptionEngine:
                     cls._instance = cls(config)
         return cls._instance
 
-    def transcribe(self, audio_path: str, language: str | None = None) -> TranscriptionResult:
-        """Run ASR on a local audio file. Blocking — call from a worker thread."""
+    def transcribe(
+        self, audio_path: str, language: str | None = None
+    ) -> TranscriptionResult:
+        """Run ASR on a local audio file. Blocking - call from a worker thread."""
         results = self._model.transcribe(audio=audio_path, language=language)
         r = results[0]
         return TranscriptionResult(text=r.text, language=r.language)

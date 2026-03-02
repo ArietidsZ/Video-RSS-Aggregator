@@ -7,7 +7,7 @@ from threading import Lock
 
 from vllm import LLM, SamplingParams
 
-from .config import Config
+from core_config import Config
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +33,11 @@ class SummarizationEngine:
     _lock = Lock()
 
     def __init__(self, config: Config) -> None:
-        log.info("Loading LLM %s (gpu_mem=%.2f)", config.llm_model, config.gpu_memory_utilization)
+        log.info(
+            "Loading LLM %s (gpu_mem=%.2f)",
+            config.llm_model,
+            config.gpu_memory_utilization,
+        )
         self._llm = LLM(
             model=config.llm_model,
             gpu_memory_utilization=config.gpu_memory_utilization,
@@ -53,7 +57,7 @@ class SummarizationEngine:
         return cls._instance
 
     def summarize(self, text: str) -> SummaryResult:
-        """Run summarization. Blocking — call from a worker thread."""
+        """Run summarization. Blocking - call from a worker thread."""
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": _USER_TEMPLATE.format(text=text)},
@@ -80,7 +84,7 @@ class SummarizationEngine:
         text = raw.strip()
         if text.startswith("```"):
             lines = text.split("\n")
-            lines = lines[1:]  # drop opening fence
+            lines = lines[1:]
             if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
             text = "\n".join(lines).strip()

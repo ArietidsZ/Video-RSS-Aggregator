@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from .storage import SummaryRecord
+from adapter_storage import SummaryRecord
 
 
 def render_feed(
@@ -32,7 +32,9 @@ def render_feed(
         if rec.published_at:
             SubElement(item, "pubDate").text = _rfc2822(rec.published_at)
 
-    return '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(rss, encoding="unicode")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(
+        rss, encoding="unicode"
+    )
 
 
 def _rfc2822(dt: datetime) -> str:

@@ -34,6 +34,16 @@ python -m vra serve --bind 0.0.0.0:8080
 
 Models are downloaded from Hugging Face automatically on first run.
 
+## Project Layout
+
+The codebase is organized by layer and naming prefix in the project root:
+
+- `core_*.py`: core runtime config (`core_config.py`)
+- `service_*.py`: media preparation, transcription, summarization, and orchestration
+- `adapter_*.py`: FastAPI interface, RSS rendering, and database adapter
+- `cli.py`: CLI commands (`serve`, `verify`)
+- `vra.py`: module entry for `python -m vra`
+
 ## Environment Variables
 
 | Variable | Default | Description |
