@@ -8,8 +8,8 @@ from datetime import datetime
 
 import asyncpg
 
-from .transcribe import TranscriptionResult
-from .summarize import SummaryResult
+from service_summarize import SummaryResult
+from service_transcribe import TranscriptionResult
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +78,9 @@ class Database:
                    DO UPDATE SET title = COALESCE(EXCLUDED.title, feeds.title),
                                  last_checked = NOW()
                    RETURNING id""",
-                fid, url, title,
+                fid,
+                url,
+                title,
             )
         return row["id"]
 
@@ -102,17 +104,27 @@ class Database:
                        guid = COALESCE(EXCLUDED.guid, videos.guid),
                        feed_id = COALESCE(EXCLUDED.feed_id, videos.feed_id)
                    RETURNING id""",
-                vid, feed_id, source_url, guid, title, published_at,
+                vid,
+                feed_id,
+                source_url,
+                guid,
+                title,
+                published_at,
             )
         return row["id"]
 
-    async def insert_transcript(self, video_id: uuid.UUID, tr: TranscriptionResult) -> uuid.UUID:
+    async def insert_transcript(
+        self, video_id: uuid.UUID, tr: TranscriptionResult
+    ) -> uuid.UUID:
         tid = uuid.uuid4()
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """INSERT INTO transcripts (id, video_id, language, text)
                    VALUES ($1, $2, $3, $4)""",
-                tid, video_id, tr.language, tr.text,
+                tid,
+                video_id,
+                tr.language,
+                tr.text,
             )
         return tid
 
@@ -122,7 +134,10 @@ class Database:
             await conn.execute(
                 """INSERT INTO summaries (id, video_id, summary, key_points)
                    VALUES ($1, $2, $3, $4::jsonb)""",
-                sid, video_id, sr.summary, json.dumps(sr.key_points),
+                sid,
+                video_id,
+                sr.summary,
+                json.dumps(sr.key_points),
             )
         return sid
 
@@ -142,12 +157,14 @@ class Database:
             kp = r["key_points"]
             if isinstance(kp, str):
                 kp = json.loads(kp)
-            out.append(SummaryRecord(
-                title=r["title"],
-                source_url=r["source_url"],
-                published_at=r["published_at"],
-                summary=r["summary"],
-                key_points=kp if isinstance(kp, list) else [],
-                created_at=r["created_at"],
-            ))
+            out.append(
+                SummaryRecord(
+                    title=r["title"],
+                    source_url=r["source_url"],
+                    published_at=r["published_at"],
+                    summary=r["summary"],
+                    key_points=kp if isinstance(kp, list) else [],
+                    created_at=r["created_at"],
+                )
+            )
         return out

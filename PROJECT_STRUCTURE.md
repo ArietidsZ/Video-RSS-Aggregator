@@ -1,19 +1,19 @@
 # Project Structure
 
-Only the files listed below are retained. Any file not listed here must be removed.
+All source files are in the workspace root. Layering is preserved by filename prefix.
 
 /.gitignore
 /.data/
 /README.md
 /PROJECT_STRUCTURE.md
 /pyproject.toml
-/vra/__init__.py
-/vra/__main__.py
-/vra/config.py
-/vra/media.py
-/vra/transcribe.py
-/vra/summarize.py
-/vra/storage.py
-/vra/rss.py
-/vra/pipeline.py
-/vra/api.py
+/vra.py
+/cli.py
+/core_config.py
+/service_media.py
+/service_transcribe.py
+/service_summarize.py
+/service_pipeline.py
+/adapter_api.py
+/adapter_rss.py
+/adapter_storage.py

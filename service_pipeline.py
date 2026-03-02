@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-from dataclasses import dataclass, field
-from io import BytesIO
+from dataclasses import dataclass
 
 import feedparser
 import httpx
 
-from .config import Config
-from .media import prepare_audio
-from .rss import render_feed
-from .storage import Database
-from .summarize import SummarizationEngine, SummaryResult
-from .transcribe import TranscriptionEngine, TranscriptionResult
-
-log = logging.getLogger(__name__)
+from adapter_rss import render_feed
+from adapter_storage import Database
+from core_config import Config
+from service_media import prepare_audio
+from service_summarize import SummarizationEngine, SummaryResult
+from service_transcribe import TranscriptionEngine, TranscriptionResult
 
 
 @dataclass(slots=True)
@@ -52,15 +48,10 @@ class Pipeline:
         db = await Database.connect(config.database_url)
         await db.migrate()
 
-        # Load models in background threads to keep event loop responsive
         transcriber = await asyncio.to_thread(TranscriptionEngine.get, config)
         summarizer = await asyncio.to_thread(SummarizationEngine.get, config)
 
         return cls(config, db, transcriber, summarizer)
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     async def ingest_feed(
         self,
@@ -115,10 +106,6 @@ class Pipeline:
         records = await self._db.latest_summaries(limit)
         return render_feed(title, link, description, records)
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
     async def _process_with_video(
         self,
         video_id,
@@ -144,11 +131,6 @@ class Pipeline:
         return ProcessReport(
             source_url=source_url, title=resolved_title, transcription=tr, summary=sr
         )
-
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
 
 
 def _pick_source_url(entry) -> str | None:
