@@ -2,45 +2,120 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+
+def _to_bool(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    value = value.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _parse_bind(value: str) -> tuple[str, int]:
+    host, _, port = value.rpartition(":")
+    if not host:
+        return "127.0.0.1", 8080
+    try:
+        return host, int(port)
+    except ValueError:
+        return host, 8080
 
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    database_url: str
-    bind_host: str = "0.0.0.0"
+    bind_host: str = "127.0.0.1"
     bind_port: int = 8080
     api_key: str | None = None
     storage_dir: str = ".data"
-    asr_model: str = "Qwen/Qwen3-ASR-1.7B"
-    llm_model: str = "Qwen/Qwen3-8B-AWQ"
-    gpu_memory_utilization: float = 0.8
-    asr_device: str = "cuda:0"
-    asr_max_tokens: int = 4096
-    llm_max_tokens: int = 2048
+    database_path: str = ".data/vra.db"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    model_primary: str = "qwen3.5:4b-q4_K_M"
+    model_fallback: str = "qwen3.5:2b-q4_K_M"
+    model_min: str = "qwen3.5:0.8b-q8_0"
+    auto_pull_models: bool = True
+    vram_budget_mb: int = 8192
+    model_size_budget_ratio: float = 0.75
+    model_selection_reserve_mb: int = 768
+    context_tokens: int = 3072
+    max_output_tokens: int = 768
+    max_frames: int = 5
+    frame_scene_detection: bool = True
+    frame_scene_threshold: float = 0.28
+    frame_scene_min_frames: int = 2
+    max_transcript_chars: int = 16000
+    rss_title: str = "Video RSS Aggregator"
+    rss_link: str = "http://127.0.0.1:8080/rss"
+    rss_description: str = "Video summaries"
+
+    @property
+    def model_priority(self) -> tuple[str, ...]:
+        out: list[str] = []
+        for name in (self.model_primary, self.model_fallback, self.model_min):
+            item = name.strip()
+            if item and item not in out:
+                out.append(item)
+        return tuple(out)
 
     @classmethod
     def from_env(cls) -> Config:
-        database_url = os.environ.get("DATABASE_URL", "")
-        if not database_url:
-            raise RuntimeError("DATABASE_URL must be set")
+        bind = os.environ.get("BIND_ADDRESS", "127.0.0.1:8080")
+        host, port = _parse_bind(bind)
 
-        bind = os.environ.get("BIND_ADDRESS", "0.0.0.0:8080")
-        parts = bind.rsplit(":", 1)
-        host = parts[0] if len(parts) == 2 else "0.0.0.0"
-        port = int(parts[1]) if len(parts) == 2 else 8080
-
-        gpu_mem = float(os.environ.get("VRA_GPU_MEMORY_UTILIZATION", "0.8"))
+        storage_dir = os.environ.get("VRA_STORAGE_DIR", ".data")
+        db_path = os.environ.get("VRA_DATABASE_PATH")
+        if not db_path:
+            db_path = str(Path(storage_dir) / "vra.db")
 
         return cls(
-            database_url=database_url,
             bind_host=host,
             bind_port=port,
             api_key=os.environ.get("API_KEY"),
-            storage_dir=os.environ.get("VRA_STORAGE_DIR", ".data"),
-            asr_model=os.environ.get("VRA_ASR_MODEL", "Qwen/Qwen3-ASR-1.7B"),
-            llm_model=os.environ.get("VRA_LLM_MODEL", "Qwen/Qwen3-8B-AWQ"),
-            gpu_memory_utilization=gpu_mem,
-            asr_device=os.environ.get("VRA_ASR_DEVICE", "cuda:0"),
-            asr_max_tokens=int(os.environ.get("VRA_ASR_MAX_TOKENS", "4096")),
-            llm_max_tokens=int(os.environ.get("VRA_LLM_MAX_TOKENS", "2048")),
+            storage_dir=storage_dir,
+            database_path=db_path,
+            ollama_base_url=os.environ.get(
+                "VRA_OLLAMA_BASE_URL",
+                "http://127.0.0.1:11434",
+            ),
+            model_primary=os.environ.get("VRA_MODEL_PRIMARY", "qwen3.5:4b-q4_K_M"),
+            model_fallback=os.environ.get("VRA_MODEL_FALLBACK", "qwen3.5:2b-q4_K_M"),
+            model_min=os.environ.get("VRA_MODEL_MIN", "qwen3.5:0.8b-q8_0"),
+            auto_pull_models=_to_bool(
+                os.environ.get("VRA_AUTO_PULL_MODELS"),
+                True,
+            ),
+            vram_budget_mb=int(os.environ.get("VRA_VRAM_BUDGET_MB", "8192")),
+            model_size_budget_ratio=float(
+                os.environ.get("VRA_MODEL_SIZE_BUDGET_RATIO", "0.75")
+            ),
+            model_selection_reserve_mb=int(
+                os.environ.get("VRA_MODEL_SELECTION_RESERVE_MB", "768")
+            ),
+            context_tokens=int(os.environ.get("VRA_CONTEXT_TOKENS", "3072")),
+            max_output_tokens=int(os.environ.get("VRA_MAX_OUTPUT_TOKENS", "768")),
+            max_frames=int(os.environ.get("VRA_MAX_FRAMES", "5")),
+            frame_scene_detection=_to_bool(
+                os.environ.get("VRA_FRAME_SCENE_DETECTION"),
+                True,
+            ),
+            frame_scene_threshold=float(
+                os.environ.get("VRA_FRAME_SCENE_THRESHOLD", "0.28")
+            ),
+            frame_scene_min_frames=max(
+                1,
+                int(os.environ.get("VRA_FRAME_SCENE_MIN_FRAMES", "2")),
+            ),
+            max_transcript_chars=int(
+                os.environ.get("VRA_MAX_TRANSCRIPT_CHARS", "16000")
+            ),
+            rss_title=os.environ.get("VRA_RSS_TITLE", "Video RSS Aggregator"),
+            rss_link=os.environ.get("VRA_RSS_LINK", "http://127.0.0.1:8080/rss"),
+            rss_description=os.environ.get(
+                "VRA_RSS_DESCRIPTION",
+                "Video summaries",
+            ),
         )
