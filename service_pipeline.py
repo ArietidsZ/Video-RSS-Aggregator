@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from time import struct_time
+from typing import Any
 
 import feedparser
 import httpx
@@ -9,9 +11,8 @@ import httpx
 from adapter_rss import render_feed
 from adapter_storage import Database
 from core_config import Config
-from service_media import prepare_audio
+from service_media import prepare_media
 from service_summarize import SummarizationEngine, SummaryResult
-from service_transcribe import TranscriptionEngine, TranscriptionResult
 
 
 @dataclass(slots=True)
@@ -23,10 +24,11 @@ class IngestReport:
 
 @dataclass(slots=True)
 class ProcessReport:
-    source_url: str = ""
-    title: str | None = None
-    transcription: TranscriptionResult | None = None
-    summary: SummaryResult | None = None
+    source_url: str
+    title: str | None
+    transcript_chars: int
+    frame_count: int
+    summary: SummaryResult
 
 
 class Pipeline:
@@ -34,24 +36,45 @@ class Pipeline:
         self,
         config: Config,
         db: Database,
-        transcriber: TranscriptionEngine,
         summarizer: SummarizationEngine,
     ) -> None:
         self._config = config
         self._db = db
-        self._transcriber = transcriber
         self._summarizer = summarizer
-        self._client = httpx.AsyncClient(timeout=300, follow_redirects=True)
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=15.0, read=300.0, write=300.0, pool=60.0),
+            follow_redirects=True,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+        )
 
     @classmethod
     async def create(cls, config: Config) -> Pipeline:
-        db = await Database.connect(config.database_url)
+        db = await Database.connect(config.database_path)
         await db.migrate()
 
-        transcriber = await asyncio.to_thread(TranscriptionEngine.get, config)
-        summarizer = await asyncio.to_thread(SummarizationEngine.get, config)
+        summarizer = SummarizationEngine(config)
+        await summarizer.prepare_models()
 
-        return cls(config, db, transcriber, summarizer)
+        return cls(config, db, summarizer)
+
+    async def close(self) -> None:
+        await self._client.aclose()
+        await self._summarizer.close()
+        await self._db.close()
+
+    async def runtime_status(self) -> dict[str, Any]:
+        status = await self._summarizer.runtime_status()
+        status["database_path"] = self._db.path
+        status["storage_dir"] = self._config.storage_dir
+        status["models"] = list(self._config.model_priority)
+        return status
+
+    async def bootstrap_models(self) -> dict[str, Any]:
+        prepared = await self._summarizer.prepare_models()
+        return {
+            "models_prepared": prepared,
+            "runtime": await self.runtime_status(),
+        }
 
     async def ingest_feed(
         self,
@@ -61,79 +84,114 @@ class Pipeline:
     ) -> IngestReport:
         resp = await self._client.get(feed_url)
         resp.raise_for_status()
-        feed = feedparser.parse(resp.text)
+        parsed = feedparser.parse(resp.text)
 
-        feed_title = feed.feed.get("title")
+        feed_title = parsed.feed.get("title")
         feed_id = await self._db.upsert_feed(feed_url, feed_title)
 
-        entries = feed.entries
+        entries = parsed.entries
         if max_items is not None:
             entries = entries[:max_items]
 
         report = IngestReport(feed_title=feed_title)
 
         for entry in entries:
-            title = entry.get("title")
-            guid = entry.get("id") or None
-            published = entry.get("published_parsed") or entry.get("updated_parsed")
-            pub_dt = _struct_to_dt(published) if published else None
-
             source_url = _pick_source_url(entry)
             if not source_url:
                 continue
 
+            title = entry.get("title")
+            guid = entry.get("id") or None
+            published = entry.get("published_parsed") or entry.get("updated_parsed")
+            published_at = _struct_to_dt(published) if published else None
+
             video_id = await self._db.upsert_video(
-                feed_id, guid, title, source_url, pub_dt
+                feed_id,
+                guid,
+                title,
+                source_url,
+                published_at,
             )
             report.item_count += 1
 
             if process:
-                pr = await self._process_with_video(video_id, source_url, title)
-                if pr.summary and pr.summary.summary:
+                processed = await self._process_with_video(video_id, source_url, title)
+                if processed.summary.summary:
                     report.processed_count += 1
 
         return report
 
     async def process_source(
-        self, source_url: str, title: str | None = None
+        self,
+        source_url: str,
+        title: str | None = None,
     ) -> ProcessReport:
-        video_id = await self._db.upsert_video(None, None, title, source_url, None)
+        video_id = await self._db.upsert_video(
+            feed_id=None,
+            guid=None,
+            title=title,
+            source_url=source_url,
+            published_at=None,
+        )
         return await self._process_with_video(video_id, source_url, title)
 
-    async def rss_feed(
-        self, title: str, link: str, description: str, limit: int = 20
-    ) -> str:
+    async def rss_feed(self, limit: int = 20) -> str:
         records = await self._db.latest_summaries(limit)
-        return render_feed(title, link, description, records)
+        return render_feed(
+            self._config.rss_title,
+            self._config.rss_link,
+            self._config.rss_description,
+            records,
+        )
 
     async def _process_with_video(
         self,
-        video_id,
+        video_id: str,
         source_url: str,
         title: str | None,
     ) -> ProcessReport:
-        prepared = await prepare_audio(
-            self._client, source_url, self._config.storage_dir
+        prepared = await prepare_media(
+            client=self._client,
+            source=source_url,
+            storage_dir=self._config.storage_dir,
+            max_frames=self._config.max_frames,
+            scene_detection=self._config.frame_scene_detection,
+            scene_threshold=self._config.frame_scene_threshold,
+            scene_min_frames=self._config.frame_scene_min_frames,
+            max_transcript_chars=self._config.max_transcript_chars,
         )
+
         resolved_title = title or prepared.title
+        await self._db.upsert_video(
+            feed_id=None,
+            guid=None,
+            title=resolved_title,
+            source_url=source_url,
+            published_at=None,
+            media_path=str(prepared.media_path),
+        )
 
-        if resolved_title and resolved_title != title:
-            await self._db.upsert_video(None, None, resolved_title, source_url, None)
+        if prepared.transcript:
+            await self._db.insert_transcript(video_id, prepared.transcript)
 
-        audio_str = str(prepared.audio_path)
-
-        tr = await asyncio.to_thread(self._transcriber.transcribe, audio_str)
-        sr = await asyncio.to_thread(self._summarizer.summarize, tr.text)
-
-        await self._db.insert_transcript(video_id, tr)
-        await self._db.insert_summary(video_id, sr)
+        summary = await self._summarizer.summarize(
+            source_url=source_url,
+            title=resolved_title,
+            transcript=prepared.transcript,
+            frame_paths=prepared.frame_paths,
+        )
+        await self._db.insert_summary(video_id, summary)
 
         return ProcessReport(
-            source_url=source_url, title=resolved_title, transcription=tr, summary=sr
+            source_url=source_url,
+            title=resolved_title,
+            transcript_chars=len(prepared.transcript),
+            frame_count=len(prepared.frame_paths),
+            summary=summary,
         )
 
 
-def _pick_source_url(entry) -> str | None:
+def _pick_source_url(entry: Any) -> str | None:
     enclosures = entry.get("enclosures", [])
     if enclosures:
         return enclosures[0].get("href") or enclosures[0].get("url")
@@ -143,10 +201,8 @@ def _pick_source_url(entry) -> str | None:
     return entry.get("link")
 
 
-def _struct_to_dt(st):
-    from datetime import datetime, timezone
-
+def _struct_to_dt(value: struct_time) -> datetime | None:
     try:
-        return datetime(*st[:6], tzinfo=timezone.utc)
+        return datetime(*value[:6], tzinfo=timezone.utc)
     except Exception:
         return None

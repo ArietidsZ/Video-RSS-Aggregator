@@ -23,11 +23,17 @@ def render_feed(
         SubElement(item, "title").text = rec.title or "Untitled video"
         SubElement(item, "link").text = rec.source_url
 
-        desc = rec.summary
+        desc_parts = [rec.summary]
         if rec.key_points:
             bullets = "\n".join(f"- {p}" for p in rec.key_points)
-            desc = f"{desc}\n\n{bullets}"
-        SubElement(item, "description").text = desc
+            desc_parts.append(bullets)
+        if rec.visual_highlights:
+            visuals = "\n".join(f"- {p}" for p in rec.visual_highlights)
+            desc_parts.append(f"Visual Highlights:\n{visuals}")
+        if rec.model_used:
+            desc_parts.append(f"Model: {rec.model_used} (VRAM {rec.vram_mb:.2f} MB)")
+
+        SubElement(item, "description").text = "\n\n".join(desc_parts)
 
         if rec.published_at:
             SubElement(item, "pubDate").text = _rfc2822(rec.published_at)
