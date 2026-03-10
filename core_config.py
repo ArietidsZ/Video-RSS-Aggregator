@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 
 def _to_bool(value: str | None, default: bool) -> bool:
@@ -48,9 +49,15 @@ class Config:
     frame_scene_threshold: float = 0.28
     frame_scene_min_frames: int = 2
     max_transcript_chars: int = 16000
+    transcript_retention_per_video: int = 3
+    summary_retention_per_video: int = 5
     rss_title: str = "Video RSS Aggregator"
     rss_link: str = "http://127.0.0.1:8080/rss"
     rss_description: str = "Video summaries"
+
+    @property
+    def bind_address(self) -> str:
+        return f"{self.bind_host}:{self.bind_port}"
 
     @property
     def model_priority(self) -> tuple[str, ...]:
@@ -60,6 +67,19 @@ class Config:
             if item and item not in out:
                 out.append(item)
         return tuple(out)
+
+    def as_setup_payload(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload.pop("api_key", None)
+        payload["bind_address"] = self.bind_address
+        payload["model_priority"] = list(self.model_priority)
+        payload["api_key_required"] = self.api_key is not None
+        payload["quick_commands"] = {
+            "bootstrap": "python -m vra bootstrap",
+            "status": "python -m vra status",
+            "serve": f"python -m vra serve --bind {self.bind_address}",
+        }
+        return payload
 
     @classmethod
     def from_env(cls) -> Config:
@@ -111,6 +131,14 @@ class Config:
             ),
             max_transcript_chars=int(
                 os.environ.get("VRA_MAX_TRANSCRIPT_CHARS", "16000")
+            ),
+            transcript_retention_per_video=max(
+                1,
+                int(os.environ.get("VRA_TRANSCRIPT_RETENTION_PER_VIDEO", "3")),
+            ),
+            summary_retention_per_video=max(
+                1,
+                int(os.environ.get("VRA_SUMMARY_RETENTION_PER_VIDEO", "5")),
             ),
             rss_title=os.environ.get("VRA_RSS_TITLE", "Video RSS Aggregator"),
             rss_link=os.environ.get("VRA_RSS_LINK", "http://127.0.0.1:8080/rss"),

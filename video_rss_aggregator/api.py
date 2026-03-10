@@ -6,10 +6,12 @@ import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from importlib.util import find_spec
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from adapter_gui import render_setup_page
@@ -53,6 +55,11 @@ def create_app(
     app = FastAPI(title="Video RSS Aggregator", version="0.1.0", lifespan=lifespan)
     if runtime is not None:
         app.state.runtime = runtime
+    app.mount(
+        "/static",
+        StaticFiles(directory=Path(__file__).resolve().parent / "static"),
+        name="static",
+    )
 
     def _runtime(request: Request) -> AppRuntime:
         return request.app.state.runtime
@@ -77,30 +84,15 @@ def create_app(
         return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
     @app.get("/", response_class=HTMLResponse)
-    async def setup_home() -> str:
-        return render_setup_page(resolved_config)
+    async def setup_home(request: Request) -> str:
+        return render_setup_page(
+            resolved_config,
+            root_path=request.scope.get("root_path", ""),
+        )
 
     @app.get("/setup/config")
     async def setup_config() -> dict[str, object]:
-        return {
-            "bind_address": f"{resolved_config.bind_host}:{resolved_config.bind_port}",
-            "storage_dir": resolved_config.storage_dir,
-            "database_path": resolved_config.database_path,
-            "ollama_base_url": resolved_config.ollama_base_url,
-            "model_priority": list(resolved_config.model_priority),
-            "vram_budget_mb": resolved_config.vram_budget_mb,
-            "model_selection_reserve_mb": resolved_config.model_selection_reserve_mb,
-            "max_frames": resolved_config.max_frames,
-            "frame_scene_detection": resolved_config.frame_scene_detection,
-            "frame_scene_threshold": resolved_config.frame_scene_threshold,
-            "frame_scene_min_frames": resolved_config.frame_scene_min_frames,
-            "api_key_required": resolved_config.api_key is not None,
-            "quick_commands": {
-                "bootstrap": "python -m vra bootstrap",
-                "status": "python -m vra status",
-                "serve": "python -m vra serve --bind 127.0.0.1:8080",
-            },
-        }
+        return resolved_config.as_setup_payload()
 
     @app.get("/setup/diagnostics")
     async def setup_diagnostics(request: Request) -> dict[str, object]:

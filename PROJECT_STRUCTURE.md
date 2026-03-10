@@ -22,6 +22,8 @@ The app now uses a packaged runtime architecture in `video_rss_aggregator/`, wit
   /__init__.py
   /api.py
   /bootstrap.py
+  /config.py
+  /gui.py
   /rss.py
   /storage.py
   /application/
@@ -46,6 +48,11 @@ The app now uses a packaged runtime architecture in `video_rss_aggregator/`, wit
     /runtime_adapters.py
     /sqlite_repositories.py
     /summarizer.py
+  /static/
+    /setup.css
+    /setup.js
+  /templates/
+    /setup.html
 /tests/
   /adapters/
     /test_api_app.py
