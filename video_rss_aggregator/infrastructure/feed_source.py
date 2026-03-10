@@ -31,22 +31,48 @@ def _map_entry(entry: Any) -> FetchedFeedEntry:
 
 
 def _pick_published_at(entry: Any) -> datetime | None:
-    published = entry.get("published")
-    if published:
-        try:
-            parsed = parsedate_to_datetime(published)
-        except (TypeError, ValueError, IndexError, OverflowError):
-            parsed = None
-        if parsed is not None:
-            if parsed.tzinfo is None:
-                return parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc)
+    for field in ("published", "updated"):
+        value = entry.get(field)
+        if value:
+            parsed = _parse_datetime_value(value)
+            if parsed is not None:
+                return parsed
 
-    published_parsed = entry.get("published_parsed")
-    if published_parsed is None:
+    for field in ("published_parsed", "updated_parsed"):
+        value = entry.get(field)
+        if value is not None:
+            parsed = _parse_datetime_tuple(value)
+            if parsed is not None:
+                return parsed
+
+    return None
+
+
+def _parse_datetime_value(value: Any) -> datetime | None:
+    if not isinstance(value, str):
         return None
 
-    return datetime(*published_parsed[:6], tzinfo=timezone.utc)
+    try:
+        parsed = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        parsed = None
+
+    if parsed is None:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _parse_datetime_tuple(value: Any) -> datetime | None:
+    try:
+        return datetime(*value[:6], tzinfo=timezone.utc)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
 
 
 @dataclass(frozen=True)
