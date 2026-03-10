@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import feedparser
@@ -24,7 +26,27 @@ def _map_entry(entry: Any) -> FetchedFeedEntry:
         source_url=_pick_source_url(entry),
         title=entry.get("title") or None,
         guid=entry.get("id") or None,
+        published_at=_pick_published_at(entry),
     )
+
+
+def _pick_published_at(entry: Any) -> datetime | None:
+    published = entry.get("published")
+    if published:
+        try:
+            parsed = parsedate_to_datetime(published)
+        except (TypeError, ValueError, IndexError, OverflowError):
+            parsed = None
+        if parsed is not None:
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+
+    published_parsed = entry.get("published_parsed")
+    if published_parsed is None:
+        return None
+
+    return datetime(*published_parsed[:6], tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)

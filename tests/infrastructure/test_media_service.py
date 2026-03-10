@@ -56,8 +56,11 @@ async def test_media_preparation_service_maps_legacy_prepared_media(
     assert prepared.source_url == "https://example.com/watch?v=1"
     assert prepared.title == "Feed title"
     assert prepared.transcript == "captured transcript"
-    assert prepared.media_path == "/tmp/downloaded.mp4"
-    assert prepared.frame_paths == ("/tmp/frame-1.jpg", "/tmp/frame-2.jpg")
+    assert Path(prepared.media_path) == Path("/tmp/downloaded.mp4")
+    assert tuple(Path(path) for path in prepared.frame_paths) == (
+        Path("/tmp/frame-1.jpg"),
+        Path("/tmp/frame-2.jpg"),
+    )
 
 
 @pytest.mark.anyio

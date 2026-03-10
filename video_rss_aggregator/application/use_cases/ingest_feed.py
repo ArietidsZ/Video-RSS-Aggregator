@@ -11,6 +11,7 @@ from video_rss_aggregator.application.ports import (
     FeedVideoRepository,
     SourceProcessor,
 )
+from video_rss_aggregator.domain.outcomes import Failure
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class IngestFeed:
                     source_url=source_url,
                     title=entry.title,
                     guid=entry.guid,
+                    published_at=entry.published_at,
                 )
             )
 
@@ -64,10 +66,11 @@ class IngestFeed:
             await self.videos.save_feed_item(feed_url, entry)
 
             if process:
-                await self.process_source.execute(
+                result = await self.process_source.execute(
                     cast(str, entry.source_url), entry.title
                 )
-                processed_count += 1
+                if not isinstance(result, Failure):
+                    processed_count += 1
 
         return IngestReport(
             feed_title=normalized_feed.title,

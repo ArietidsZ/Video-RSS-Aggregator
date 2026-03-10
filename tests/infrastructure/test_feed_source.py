@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from video_rss_aggregator.application.ports import FetchedFeed, FetchedFeedEntry
@@ -39,6 +41,7 @@ async def test_http_feed_source_fetches_and_maps_entries() -> None:
                 <item>
                   <title>First</title>
                   <guid>first-guid</guid>
+                  <pubDate>Tue, 02 Jan 2024 03:04:05 GMT</pubDate>
                   <enclosure url="https://cdn.example.com/video.mp4" type="video/mp4" />
                 </item>
                 <item>
@@ -64,6 +67,7 @@ async def test_http_feed_source_fetches_and_maps_entries() -> None:
                 source_url="https://cdn.example.com/video.mp4",
                 title="First",
                 guid="first-guid",
+                published_at=datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
             ),
         ),
     )

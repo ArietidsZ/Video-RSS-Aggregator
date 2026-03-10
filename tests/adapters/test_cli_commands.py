@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from click.testing import CliRunner
@@ -217,7 +218,9 @@ def test_serve_builds_runtime_then_passes_it_to_app_factory(monkeypatch) -> None
 
     assert result.exit_code == 0, result.output
     assert calls["create_app_runtime"] is None
-    assert calls["create_app_config"] == Config()
+    assert calls["create_app_config"] == Config(
+        database_path=str(Path(".data") / "vra.db")
+    )
     assert calls["uvicorn_host"] == "127.0.0.1"
     assert calls["uvicorn_port"] == 8080
     assert calls["uvicorn_log_level"] == "info"
