@@ -36,12 +36,14 @@ py-modules = [
     "service_ollama",
     "service_transcribe",
     "service_summarize",
-    "service_pipeline",
     "adapter_gui",
     "adapter_api",
     "adapter_rss",
     "adapter_storage",
 ]
+
+[tool.setuptools.packages.find]
+include = ["video_rss_aggregator*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
