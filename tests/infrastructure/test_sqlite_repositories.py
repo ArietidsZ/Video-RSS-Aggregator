@@ -143,6 +143,7 @@ async def test_sqlite_feed_adapters_persist_feed_and_video_metadata(tmp_path) ->
             source_url="https://example.com/watch?v=from-feed",
             title="Feed item",
             guid="guid-1",
+            published_at=datetime(2024, 1, 2, 3, 4, tzinfo=timezone.utc),
         ),
     )
 
@@ -151,7 +152,7 @@ async def test_sqlite_feed_adapters_persist_feed_and_video_metadata(tmp_path) ->
     ) as cur:
         feed_row = await cur.fetchone()
     async with db._conn.execute(
-        "SELECT title, guid FROM videos WHERE source_url = ?",
+        "SELECT title, guid, published_at FROM videos WHERE source_url = ?",
         ("https://example.com/watch?v=from-feed",),
     ) as cur:
         video_row = await cur.fetchone()
@@ -159,4 +160,8 @@ async def test_sqlite_feed_adapters_persist_feed_and_video_metadata(tmp_path) ->
     await db.close()
 
     assert dict(feed_row) == {"title": "Feed title"}
-    assert dict(video_row) == {"title": "Feed item", "guid": "guid-1"}
+    assert dict(video_row) == {
+        "title": "Feed item",
+        "guid": "guid-1",
+        "published_at": "2024-01-02T03:04:00+00:00",
+    }

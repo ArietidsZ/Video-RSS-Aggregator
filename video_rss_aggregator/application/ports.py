@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Protocol, Sequence
 
 from video_rss_aggregator.domain.models import PreparedMedia, SummaryResult
+from video_rss_aggregator.domain.outcomes import ProcessOutcome
 from video_rss_aggregator.domain.publication import PublicationRecord
 
 
@@ -22,6 +24,7 @@ class FetchedFeedEntry:
     source_url: str | None
     title: str | None = None
     guid: str | None = None
+    published_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -49,7 +52,7 @@ class FeedVideoRepository(Protocol):
 
 
 class SourceProcessor(Protocol):
-    async def execute(self, source_url: str, title: str | None): ...
+    async def execute(self, source_url: str, title: str | None) -> ProcessOutcome: ...
 
 
 class Summarizer(Protocol):

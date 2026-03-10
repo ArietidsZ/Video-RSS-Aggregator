@@ -31,7 +31,7 @@ class SQLiteFeedVideoRepository:
             guid=entry.guid,
             title=entry.title,
             source_url=entry.source_url,
-            published_at=None,
+            published_at=entry.published_at,
         )
 
 
