@@ -1,0 +1,641 @@
+/* ─── Design Tokens ─────────────────────────────────────────── */
+:root {
+  --bg-base: #0a0a0f;
+  --bg-elevated: #121218;
+  --bg-surface: rgba(255, 255, 255, 0.04);
+  --panel: rgba(255, 255, 255, 0.05);
+  --panel-hover: rgba(255, 255, 255, 0.07);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-border-hover: rgba(255, 255, 255, 0.14);
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-tertiary: rgba(255, 255, 255, 0.35);
+  --accent: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.15);
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.12);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.12);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 180ms;
+  --duration-normal: 350ms;
+  --duration-slow: 600ms;
+}
+
+/* ─── Reset & Base ──────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  min-height: 100vh;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* Ambient gradient orbs */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(120px);
+  opacity: 0.4;
+}
+
+body::before {
+  width: 600px;
+  height: 600px;
+  top: -200px;
+  left: -100px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.3), transparent 70%);
+}
+
+body::after {
+  width: 500px;
+  height: 500px;
+  bottom: -150px;
+  right: -100px;
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.2), transparent 70%);
+}
+
+/* ─── Shell (Page Container) ────────────────────────────────── */
+.shell {
+  width: min(960px, 90vw);
+  margin: 0 auto;
+  padding: 48px 0 80px;
+  position: relative;
+  z-index: 1;
+}
+
+/* ─── Hero ──────────────────────────────────────────────────── */
+.hero {
+  margin-bottom: 40px;
+  padding: 40px 36px;
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(40px) saturate(1.2);
+  -webkit-backdrop-filter: blur(40px) saturate(1.2);
+  opacity: 0;
+  transform: translateY(20px);
+  animation: fadeSlideUp var(--duration-slow) var(--spring) forwards;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 5px 12px;
+  border-radius: 999px;
+  margin-bottom: 16px;
+}
+
+h1 {
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.subhead {
+  color: var(--text-secondary);
+  max-width: 640px;
+  line-height: 1.65;
+  font-size: 0.94rem;
+}
+
+/* ─── Grid ──────────────────────────────────────────────────── */
+.grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+/* ─── Cards ─────────────────────────────────────────────────── */
+.card {
+  grid-column: span 6;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  backdrop-filter: blur(30px) saturate(1.15);
+  -webkit-backdrop-filter: blur(30px) saturate(1.15);
+  transition:
+    background var(--duration-normal) var(--spring),
+    border-color var(--duration-normal) var(--spring),
+    transform var(--duration-normal) var(--spring),
+    box-shadow var(--duration-normal) var(--spring);
+
+  /* Animation — cards start hidden, revealed by IntersectionObserver in JS */
+  opacity: 0;
+  transform: translateY(24px) scale(0.98);
+}
+
+.card.revealed {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity var(--duration-slow) var(--spring),
+    transform var(--duration-slow) var(--spring),
+    background var(--duration-normal) var(--spring),
+    border-color var(--duration-normal) var(--spring),
+    box-shadow var(--duration-normal) var(--spring);
+}
+
+.card:hover {
+  background: var(--panel-hover);
+  border-color: var(--panel-border-hover);
+  transform: translateY(-2px) scale(1);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.25);
+}
+
+.card.wide {
+  grid-column: span 12;
+}
+
+.card h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card h2 .step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.muted {
+  color: var(--text-secondary);
+  line-height: 1.6;
+  font-size: 0.86rem;
+  margin-bottom: 16px;
+}
+
+/* ─── Lists ─────────────────────────────────────────────────── */
+ol {
+  padding-left: 20px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
+ol li {
+  padding-left: 4px;
+  margin-bottom: 4px;
+}
+
+ol li::marker {
+  color: var(--text-tertiary);
+}
+
+/* ─── Code & Mono ───────────────────────────────────────────── */
+code,
+pre,
+input,
+textarea {
+  font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
+}
+
+code {
+  background: var(--bg-surface);
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 0.82em;
+  color: var(--text-primary);
+}
+
+/* ─── Form Fields ───────────────────────────────────────────── */
+.field-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.field-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-span {
+  grid-column: span 2;
+}
+
+.field label {
+  color: var(--text-tertiary);
+  font-size: 0.74rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+input[type="text"],
+input[type="number"],
+textarea {
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  outline: none;
+  transition:
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+input[type="text"]:hover,
+input[type="number"]:hover,
+textarea:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 52px;
+}
+
+/* ─── Toggles ───────────────────────────────────────────────── */
+.toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition: color var(--duration-fast) ease;
+}
+
+.inline:hover {
+  color: var(--text-primary);
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--panel-border-hover);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition:
+    background var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+
+input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 5.5px;
+  width: 5px;
+  height: 8px;
+  border: 2px solid white;
+  border-top: none;
+  border-left: none;
+  transform: rotate(40deg);
+}
+
+/* ─── Buttons ───────────────────────────────────────────────── */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.top-space {
+  margin-top: 16px;
+}
+
+button {
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 9px 18px;
+  font-family: "Inter", -apple-system, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: white;
+  background: var(--accent);
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform var(--duration-fast) var(--spring),
+    filter var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+}
+
+button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0);
+  transition: background var(--duration-fast) ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+
+button:hover::after {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+button:active {
+  transform: scale(0.97);
+  box-shadow: none;
+}
+
+button.warm {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: #1a0800;
+}
+
+button.warm:hover {
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);
+}
+
+button.ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border: 1px solid var(--panel-border);
+}
+
+button.ghost:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--panel-border-hover);
+  box-shadow: none;
+}
+
+/* Button press spring animation */
+button.pressing {
+  animation: buttonPress var(--duration-fast) var(--spring);
+}
+
+/* ─── Pre / Output ──────────────────────────────────────────── */
+pre {
+  margin: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 16px;
+  min-height: 100px;
+  max-height: 260px;
+  overflow: auto;
+  line-height: 1.55;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  transition: border-color var(--duration-normal) ease;
+}
+
+pre:hover {
+  border-color: var(--panel-border-hover);
+}
+
+/* Loading shimmer on pre */
+pre.loading {
+  position: relative;
+  overflow: hidden;
+}
+
+pre.loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.03) 40%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.03) 60%,
+    transparent 100%
+  );
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* Custom scrollbar */
+pre::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ─── Status ────────────────────────────────────────────────── */
+.status {
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  min-height: 1.2em;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.status.fade-in {
+  animation: fadeIn var(--duration-normal) var(--spring);
+}
+
+/* ─── Toast ─────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--panel-border-hover);
+  color: var(--text-primary);
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 500;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--duration-normal) var(--spring),
+    transform var(--duration-normal) var(--spring);
+}
+
+.toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+/* ─── Footer ────────────────────────────────────────────────── */
+.footer {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--panel-border);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 0.74rem;
+  opacity: 0;
+  animation: fadeSlideUp var(--duration-slow) var(--spring) 0.8s forwards;
+}
+
+/* ─── Responsive ────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .shell {
+    padding: 32px 0 60px;
+  }
+
+  .hero {
+    padding: 28px 24px;
+  }
+
+  .card,
+  .card.wide,
+  .field-span {
+    grid-column: span 12;
+  }
+
+  .card {
+    padding: 22px;
+  }
+
+  .field-grid,
+  .toggle-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .shell {
+    width: 94vw;
+    padding: 24px 0 48px;
+  }
+
+  .hero {
+    padding: 24px 18px;
+    border-radius: var(--radius-md);
+  }
+
+  .card {
+    border-radius: var(--radius-md);
+    padding: 18px;
+  }
+
+  h1 {
+    font-size: 1.4rem;
+  }
+}
+
+/* ─── Keyframes ─────────────────────────────────────────────── */
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes buttonPress {
+  0% { transform: scale(1); }
+  40% { transform: scale(0.97); }
+  100% { transform: scale(1); }
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}

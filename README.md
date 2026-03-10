@@ -14,6 +14,7 @@ This project has been rebuilt around Qwen 3.5 multimodal models and a strict loc
 - `video_rss_aggregator/application/` holds use-case orchestration and ports.
 - `video_rss_aggregator/domain/` defines the core models and outcome types.
 - `video_rss_aggregator/infrastructure/` contains SQLite, RSS, media, summarization, and runtime adapters.
+- `video_rss_aggregator/gui.py` plus packaged `video_rss_aggregator/templates/` and `video_rss_aggregator/static/` drive the setup studio UI.
 - Root modules such as `adapter_api.py`, `adapter_rss.py`, `adapter_storage.py`, and `cli.py` remain as compatibility and entry-point surfaces around the packaged runtime.
 
 ## Design Goals
@@ -53,7 +54,7 @@ python -m vra serve --bind 127.0.0.1:8080
 ```
 
 Then open `http://127.0.0.1:8080/` for the guided installation + configuration GUI.
-The setup page includes one-click diagnostics for Python, FFmpeg/FFprobe, yt-dlp, and Ollama reachability.
+The setup page includes one-click diagnostics for Python, FFmpeg/FFprobe, yt-dlp, and Ollama reachability, plus a packaged HTML/CSS/JS studio for generating the full `.env` block.
 
 ## 4-bit Model Defaults
 
@@ -130,4 +131,5 @@ show latency and output-shape differences.
 ## Notes
 
 - GUI setup/configuration workspace is available at `/` when the server is running.
+- The setup studio assets are served from packaged `/static/setup.css` and `/static/setup.js` resources.
 - This version is optimized for local, Windows-native operation first.
