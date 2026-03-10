@@ -7,6 +7,15 @@ This project has been rebuilt around Qwen 3.5 multimodal models and a strict loc
 - Storage: SQLite (`.data/vra.db`)
 - API: FastAPI
 
+## Architecture
+
+- `video_rss_aggregator/` contains the current runtime architecture.
+- `video_rss_aggregator/bootstrap.py` composes the application runtime and use cases.
+- `video_rss_aggregator/application/` holds use-case orchestration and ports.
+- `video_rss_aggregator/domain/` defines the core models and outcome types.
+- `video_rss_aggregator/infrastructure/` contains SQLite, RSS, media, summarization, and runtime adapters.
+- Root modules such as `adapter_api.py`, `adapter_rss.py`, `adapter_storage.py`, and `cli.py` remain as compatibility and entry-point surfaces around the packaged runtime.
+
 ## Design Goals
 
 - Use Qwen 3.5 vision-capable small models for summarization quality.

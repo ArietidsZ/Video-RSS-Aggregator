@@ -1,6 +1,6 @@
 # Project Structure
 
-All source files are in the workspace root. Layering is preserved by filename prefix.
+The app now uses a packaged runtime architecture in `video_rss_aggregator/`, with a small set of root-level adapters and CLI entrypoints kept for compatibility.
 
 /.gitignore
 /.data/
@@ -14,8 +14,59 @@ All source files are in the workspace root. Layering is preserved by filename pr
 /service_ollama.py
 /service_transcribe.py
 /service_summarize.py
-/service_pipeline.py
 /adapter_gui.py
 /adapter_api.py
 /adapter_rss.py
 /adapter_storage.py
+/video_rss_aggregator/
+  /__init__.py
+  /api.py
+  /bootstrap.py
+  /rss.py
+  /storage.py
+  /application/
+    /__init__.py
+    /ports.py
+    /use_cases/
+      /__init__.py
+      /ingest_feed.py
+      /process_source.py
+      /render_rss_feed.py
+      /runtime.py
+  /domain/
+    /__init__.py
+    /models.py
+    /outcomes.py
+    /publication.py
+  /infrastructure/
+    /__init__.py
+    /feed_source.py
+    /media_service.py
+    /publication_renderer.py
+    /runtime_adapters.py
+    /sqlite_repositories.py
+    /summarizer.py
+/tests/
+  /adapters/
+    /test_api_app.py
+    /test_cli_commands.py
+  /application/
+    /test_ingest_feed.py
+    /test_process_source.py
+    /test_render_rss_feed.py
+    /test_runtime_use_cases.py
+  /domain/
+    /test_outcomes.py
+  /infrastructure/
+    /test_feed_source.py
+    /test_legacy_adapter_shims.py
+    /test_media_service.py
+    /test_publication_renderer.py
+    /test_runtime_adapters.py
+    /test_sqlite_repositories.py
+    /test_summarizer.py
+  /test_api_setup.py
+  /test_config.py
+  /test_ollama.py
+  /test_project_layout.py
+  /test_summarize_helpers.py
