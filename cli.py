@@ -15,8 +15,9 @@ import uvicorn
 
 from core_config import Config
 from service_media import extract_frames_ffmpeg, prepare_source
-from service_pipeline import Pipeline
 from service_summarize import SummarizationEngine
+from video_rss_aggregator.bootstrap import AppRuntime, build_runtime
+from video_rss_aggregator.domain.outcomes import Failure
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +86,12 @@ def _as_float(value: object) -> float:
     return 0.0
 
 
+async def _close_runtime(runtime: AppRuntime) -> None:
+    close_result = runtime.close()
+    if close_result is not None:
+        await close_result
+
+
 @click.group()
 def cli() -> None:
     """Video RSS Aggregator powered by Qwen3.5 vision models."""
@@ -97,21 +104,30 @@ def bootstrap() -> None:
     config = Config.from_env()
 
     async def _run() -> None:
-        summarizer = SummarizationEngine(config)
+        runtime = await build_runtime(config)
         try:
-            pulled = await summarizer.prepare_models()
-            runtime = await summarizer.runtime_status()
+            report = await runtime.use_cases.bootstrap_runtime.execute()
+            models_prepared = report.get("models_prepared")
+            if models_prepared is None:
+                models_prepared = report["models"]
+
+            runtime_payload = report.get("runtime")
+            if isinstance(runtime_payload, dict):
+                runtime_response = runtime_payload
+            else:
+                runtime_response = await runtime.use_cases.get_runtime_status.execute()
+
             print(
                 json.dumps(
                     {
-                        "models_prepared": pulled,
-                        "runtime": runtime,
+                        "models_prepared": models_prepared,
+                        "runtime": runtime_response,
                     },
                     indent=2,
                 )
             )
         finally:
-            await summarizer.close()
+            await _close_runtime(runtime)
 
     try:
         asyncio.run(_run())
@@ -138,14 +154,10 @@ def serve(bind: str | None) -> None:
     async def _run() -> None:
         from adapter_api import create_app
 
-        pipeline = await Pipeline.create(config)
-        try:
-            app = create_app(pipeline, config)
-            uv_cfg = uvicorn.Config(app, host=host, port=port, log_level="info")
-            server = uvicorn.Server(uv_cfg)
-            await server.serve()
-        finally:
-            await pipeline.close()
+        app = create_app(config=config)
+        uv_cfg = uvicorn.Config(app, host=host, port=port, log_level="info")
+        server = uvicorn.Server(uv_cfg)
+        await server.serve()
 
     try:
         asyncio.run(_run())
@@ -159,13 +171,12 @@ def status() -> None:
     config = Config.from_env()
 
     async def _run() -> None:
-        summarizer = SummarizationEngine(config)
+        runtime = await build_runtime(config)
         try:
-            await summarizer.prepare_models()
-            runtime = await summarizer.runtime_status()
-            print(json.dumps(runtime, indent=2))
+            status_payload = await runtime.use_cases.get_runtime_status.execute()
+            print(json.dumps(status_payload, indent=2))
         finally:
-            await summarizer.close()
+            await _close_runtime(runtime)
 
     try:
         asyncio.run(_run())
@@ -181,31 +192,34 @@ def verify(source: str, title: str | None) -> None:
     config = Config.from_env()
 
     async def _run() -> None:
-        pipeline = await Pipeline.create(config)
+        runtime = await build_runtime(config)
         try:
             t0 = monotonic()
-            report = await pipeline.process_source(source, title)
+            outcome = await runtime.use_cases.process_source.execute(source, title)
+            if isinstance(outcome, Failure):
+                raise click.ClickException(outcome.reason)
+
             total_ms = int((monotonic() - t0) * 1000)
 
             print(
                 json.dumps(
                     {
-                        "source_url": report.source_url,
-                        "title": report.title,
-                        "transcript_chars": report.transcript_chars,
-                        "frame_count": report.frame_count,
-                        "model_used": report.summary.model_used,
-                        "vram_mb": report.summary.vram_mb,
-                        "error": report.summary.error,
-                        "summary_chars": len(report.summary.summary),
-                        "key_points": len(report.summary.key_points),
+                        "source_url": outcome.media.source_url,
+                        "title": outcome.media.title,
+                        "transcript_chars": outcome.summary.transcript_chars,
+                        "frame_count": outcome.summary.frame_count,
+                        "model_used": outcome.summary.model_used,
+                        "vram_mb": outcome.summary.vram_mb,
+                        "error": outcome.summary.error,
+                        "summary_chars": len(outcome.summary.summary),
+                        "key_points": len(outcome.summary.key_points),
                         "total_ms": total_ms,
                     },
                     indent=2,
                 )
             )
         finally:
-            await pipeline.close()
+            await _close_runtime(runtime)
 
     try:
         asyncio.run(_run())
