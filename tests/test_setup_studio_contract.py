@@ -44,6 +44,10 @@ def _build_runtime(config: Config) -> AppRuntime:
 client = TestClient(create_app(_build_runtime(Config())))
 
 
+def _is_javascript_content_type(content_type: str) -> bool:
+    return content_type.startswith(("text/javascript", "application/javascript"))
+
+
 def class_tokens_for_id(html: str, element_id: str) -> set[str]:
     tag_match = re.search(rf'<[^>]*\bid="{re.escape(element_id)}"[^>]*>', html)
     assert tag_match is not None
@@ -134,7 +138,7 @@ def test_setup_assets_expose_module_and_top_level_contracts() -> None:
 
     for response in (entry_js, api_js, state_js, view_models_js, views_js):
         assert response.status_code == 200
-        assert response.headers["content-type"].startswith("text/javascript")
+        assert _is_javascript_content_type(response.headers["content-type"])
 
     assert 'import { createSetupApi } from "./setup_api.js";' in entry_js.text
     assert 'import { createSetupState } from "./setup_state.js";' in entry_js.text
@@ -230,6 +234,8 @@ def test_setup_js_renders_shaped_setup_view_summaries_and_common_fixes() -> None
     assert "const diagnosticsView = toDiagnosticsView(report);" in entry_js.text
     assert "views.renderDiagnosticsSummary(diagnosticsView);" in entry_js.text
     assert "views.renderCommonFixes(diagnosticsView);" in entry_js.text
+    assert 'if (diagnosticsView.state === "ready") {' in entry_js.text
+    assert "if (report.ready) {" not in entry_js.text
     assert "const runtimeView = toRuntimeView(runtime);" in entry_js.text
     assert "renderRuntimeState(runtimeView, runtime);" in entry_js.text
     assert (

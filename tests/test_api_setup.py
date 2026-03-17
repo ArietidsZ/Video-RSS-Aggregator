@@ -41,6 +41,10 @@ def _build_runtime(config: Config) -> AppRuntime:
     )
 
 
+def _is_javascript_content_type(content_type: str) -> bool:
+    return content_type.startswith(("text/javascript", "application/javascript"))
+
+
 def test_gui_and_setup_routes() -> None:
     config = Config()
     app = create_app(_build_runtime(config))
@@ -61,11 +65,11 @@ def test_gui_and_setup_routes() -> None:
 
     js = client.get("/static/setup.js")
     assert js.status_code == 200
-    assert js.headers["content-type"].startswith("text/javascript")
+    assert _is_javascript_content_type(js.headers["content-type"])
 
     setup_state = client.get("/static/setup_state.js")
     assert setup_state.status_code == 200
-    assert setup_state.headers["content-type"].startswith("text/javascript")
+    assert _is_javascript_content_type(setup_state.headers["content-type"])
 
     setup = client.get("/setup/config")
     assert setup.status_code == 200
