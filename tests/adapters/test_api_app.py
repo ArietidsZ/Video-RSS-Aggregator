@@ -102,6 +102,8 @@ def test_routes_delegate_to_runtime_use_cases_and_keep_http_shapes() -> None:
     rss = client.get("/rss?limit=5")
     runtime_response = client.get("/runtime")
     bootstrap = client.post("/setup/bootstrap")
+    runtime_payload = runtime_response.json()
+    bootstrap_payload = bootstrap.json()
 
     assert ingest.status_code == 200
     assert ingest.json() == {
@@ -127,16 +129,26 @@ def test_routes_delegate_to_runtime_use_cases_and_keep_http_shapes() -> None:
     assert rss.status_code == 200
     assert rss.text == "<rss>feed</rss>"
     assert runtime_response.status_code == 200
-    assert runtime_response.json() == {
+    assert runtime_payload == {
         "ollama_version": "0.6.0",
         "local_models": {"qwen": {"size": 1}},
         "reachable": True,
         "database_path": ".data/runtime.db",
         "storage_dir": ".data",
         "models": ["qwen", "qwen:min"],
+        "setup_view": {
+            "state": "blocked",
+            "missing_models": ["qwen:min"],
+            "next_action": "Bootstrap required models",
+        },
+    }
+    assert runtime_payload["setup_view"] == {
+        "state": "blocked",
+        "missing_models": ["qwen:min"],
+        "next_action": "Bootstrap required models",
     }
     assert bootstrap.status_code == 200
-    assert bootstrap.json() == {
+    assert bootstrap_payload == {
         "models_prepared": ["qwen"],
         "runtime": {
             "ollama_version": "0.6.0",

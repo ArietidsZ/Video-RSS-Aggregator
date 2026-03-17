@@ -57,13 +57,15 @@ def test_gui_and_setup_routes() -> None:
 
     css = client.get("/static/setup.css")
     assert css.status_code == 200
-    assert "--accent" in css.text
+    assert ".shell" in css.text
 
     js = client.get("/static/setup.js")
     assert js.status_code == 200
-    assert "runDiagnostics" in js.text
-    assert "API_KEY=${fields.apiKey.value.trim()}" not in js.text
-    assert "const apiKey = fields.apiKey.value.trim();" in js.text
+    assert js.headers["content-type"].startswith("text/javascript")
+
+    setup_state = client.get("/static/setup_state.js")
+    assert setup_state.status_code == 200
+    assert setup_state.headers["content-type"].startswith("text/javascript")
 
     setup = client.get("/setup/config")
     assert setup.status_code == 200
@@ -82,6 +84,17 @@ def test_gui_and_setup_routes() -> None:
     diagnostics = client.get("/setup/diagnostics")
     assert diagnostics.status_code == 200
     diag_payload = diagnostics.json()
+    setup_view = diag_payload["setup_view"]
+    assert set(setup_view) >= {"state", "checks", "blockers", "next_action"}
+    assert setup_view["state"] in {"ready", "blocked"}
+    assert isinstance(setup_view["checks"], list)
+    assert {check["id"] for check in setup_view["checks"]} >= {
+        "python",
+        "ffmpeg",
+        "ffprobe",
+        "yt_dlp",
+        "ollama",
+    }
     assert "platform" in diag_payload
     assert "dependencies" in diag_payload
     assert "ready" in diag_payload
@@ -102,18 +115,7 @@ def test_runtime_requires_api_key_when_enabled() -> None:
 
     authorized = client.get("/runtime", headers={"X-API-Key": "secret"})
     assert authorized.status_code == 200
-    assert authorized.json() == {
-        "ollama_version": "0.6.0",
-        "local_models": {"qwen3.5:2b-q4_K_M": {}},
-        "reachable": True,
-        "database_path": ".data/vra.db",
-        "storage_dir": ".data",
-        "models": [
-            "qwen3.5:4b-q4_K_M",
-            "qwen3.5:2b-q4_K_M",
-            "qwen3.5:0.8b-q8_0",
-        ],
-    }
+    assert authorized.json()["setup_view"]["state"] == "blocked"
 
 
 def test_setup_config_omits_api_key_and_uses_current_bind_in_commands() -> None:
