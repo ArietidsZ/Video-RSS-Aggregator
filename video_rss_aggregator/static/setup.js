@@ -129,7 +129,7 @@ async function handleDiagnostics() {
     outputs.diagnostics.textContent = JSON.stringify(report, null, 2);
     views.renderDiagnosticsSummary(diagnosticsView);
     views.renderCommonFixes(diagnosticsView);
-    if (report.ready) {
+    if (diagnosticsView.state === "ready") {
       views.setStatus(status.diagnostics, "All required dependencies are available.");
     } else {
       views.setStatus(status.diagnostics, "Some dependencies are missing or unreachable.", true);
