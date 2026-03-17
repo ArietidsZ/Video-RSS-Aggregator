@@ -149,6 +149,30 @@ def test_build_runtime_view_accepts_list_shaped_local_models() -> None:
     assert view["next_action"] == "Run the first processing test"
 
 
+def test_build_runtime_view_treats_missing_reachable_as_successful_status() -> None:
+    runtime = {
+        "ollama_version": "0.6.0",
+        "local_models": {
+            "qwen3.5:4b-q4_K_M": {},
+            "qwen3.5:2b-q4_K_M": {},
+        },
+        "running_models": [],
+        "total_vram_mb": 0.0,
+        "vram_budget_mb": 8192,
+        "model_selection_reserve_mb": 768,
+        "model_priority": ["qwen3.5:4b-q4_K_M", "qwen3.5:2b-q4_K_M"],
+        "database_path": ".data/vra.db",
+        "storage_dir": ".data",
+        "models": ["qwen3.5:4b-q4_K_M", "qwen3.5:2b-q4_K_M"],
+    }
+
+    view = build_runtime_view(runtime)
+
+    assert view["state"] == "ready"
+    assert view["missing_models"] == []
+    assert view["next_action"] == "Run the first processing test"
+
+
 def test_build_runtime_view_marks_ready_path_complete() -> None:
     runtime = {
         "reachable": True,
