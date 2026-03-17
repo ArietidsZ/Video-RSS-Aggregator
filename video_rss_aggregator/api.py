@@ -19,6 +19,10 @@ from core_config import Config
 from service_media import runtime_dependency_report
 from video_rss_aggregator.bootstrap import AppRuntime, build_runtime
 from video_rss_aggregator.domain.outcomes import Failure
+from video_rss_aggregator.setup_view_models import (
+    build_diagnostics_view,
+    build_runtime_view,
+)
 
 
 class IngestRequest(BaseModel):
@@ -131,7 +135,7 @@ def create_app(
         ytdlp_ok = bool(ytdlp["available"])
         ollama_ok = bool(ollama["reachable"])
 
-        return {
+        diagnostics_payload = {
             "platform": {
                 "system": platform.system(),
                 "release": platform.release(),
@@ -146,6 +150,8 @@ def create_app(
             },
             "ready": ffmpeg_ok and ffprobe_ok and ytdlp_ok and ollama_ok,
         }
+        diagnostics_payload["setup_view"] = build_diagnostics_view(diagnostics_payload)
+        return diagnostics_payload
 
     @app.post("/setup/bootstrap")
     async def setup_bootstrap(
@@ -220,6 +226,10 @@ def create_app(
     async def runtime_status(
         request: Request, _=Depends(_check_auth)
     ) -> dict[str, object]:
-        return await _runtime(request).use_cases.get_runtime_status.execute()
+        runtime_payload = await _runtime(request).use_cases.get_runtime_status.execute()
+        return {
+            **runtime_payload,
+            "setup_view": build_runtime_view(runtime_payload),
+        }
 
     return app

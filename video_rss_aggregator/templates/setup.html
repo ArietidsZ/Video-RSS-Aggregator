@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="static/setup.css" />
 </head>
 <body>
-  <main class="shell">
+  <main class="shell" id="setup-workbench">
     <section class="hero">
       <p class="eyebrow">Setup Studio</p>
       <h1>Video RSS Aggregator Installation + Configuration</h1>
@@ -19,92 +19,158 @@
       </p>
     </section>
 
-    <section class="grid">
-      <article class="card" id="card-prerequisites" style="--reveal-delay: 0ms">
-        <h2><span class="step-number">1</span> Install Prerequisites</h2>
-        <p class="muted">Follow this sequence before starting API operations.</p>
-        <ol>
-          <li>Install Python 3.11+ and make sure <code>python</code> is on <code>PATH</code>.</li>
-          <li>Install Ollama for Windows and open it once so the API is online.</li>
-          <li>Install FFmpeg/FFprobe and confirm both commands resolve in terminal.</li>
-          <li>In this repo run <code>pip install -e .</code>, then <code>python -m vra bootstrap</code>.</li>
-          <li>Run <code>python -m vra serve --bind &lt;bind address&gt;</code> to keep this GUI active.</li>
+    <section class="workbench grid">
+      <aside class="progress-rail" id="setup-progress" data-mobile-open="false">
+        <div id="readiness-summary">
+          <h2>Readiness</h2>
+          <p class="muted">Track setup health before you run the full pipeline.</p>
+        </div>
+        <div id="blocker-summary">
+          <h2>Current blockers</h2>
+          <p class="muted">Diagnostics and runtime checks will surface anything still missing.</p>
+        </div>
+        <ol class="step-list">
+          <li class="step-item" data-step-id="prerequisites" data-state="unverified">
+            <span class="step-number">1</span>
+            <div>
+              <strong>Prerequisites</strong>
+              <p class="muted">Install Python, Ollama, FFmpeg, and project dependencies.</p>
+            </div>
+          </li>
+          <li class="step-item" data-step-id="configuration" data-state="unverified">
+            <span class="step-number">2</span>
+            <div>
+              <strong>Configuration</strong>
+              <p class="muted">Build the environment block and review advanced settings.</p>
+            </div>
+          </li>
+          <li class="step-item" data-step-id="runtime" data-state="unverified">
+            <span class="step-number">3</span>
+            <div>
+              <strong>Runtime</strong>
+              <p class="muted">Validate Ollama connectivity and bootstrap required models.</p>
+            </div>
+          </li>
+          <li class="step-item" data-step-id="process" data-state="unverified">
+            <span class="step-number">4</span>
+            <div>
+              <strong>Process</strong>
+              <p class="muted">Run one end-to-end request and inspect the generated output.</p>
+            </div>
+          </li>
         </ol>
-        <div class="actions top-space">
-          <button id="run-diagnostics" class="ghost" type="button"><span>Run dependency diagnostics</span></button>
-        </div>
-        <pre id="diagnostics-output"></pre>
-        <p class="status" id="diagnostics-status"></p>
-      </article>
+        <nav id="common-fixes" aria-label="Common fixes">
+          <h2>Common fixes</h2>
+          <p class="muted">Quick links and remediation steps will appear here.</p>
+        </nav>
+      </aside>
 
-      <article class="card wide" id="card-config" style="--reveal-delay: 80ms">
-        <h2><span class="step-number">2</span> Configuration Builder</h2>
-        <p class="muted">Edit the full runtime surface and copy the generated <code>.env</code> block.</p>
-        <div class="field-grid">
-          <div class="field"><label for="bind">Bind address</label><input id="bind" type="text" /></div>
-          <div class="field"><label for="api-key">API key</label><input id="api-key" type="text" /></div>
-          <div class="field"><label for="storage">Storage directory</label><input id="storage" type="text" /></div>
-          <div class="field"><label for="db">Database path</label><input id="db" type="text" /></div>
-          <div class="field"><label for="ollama">Ollama API URL</label><input id="ollama" type="text" /></div>
-          <div class="field"><label for="rss-link">RSS self-link</label><input id="rss-link" type="text" /></div>
-          <div class="field"><label for="model-primary">Primary model</label><input id="model-primary" type="text" /></div>
-          <div class="field"><label for="model-fallback">Fallback model</label><input id="model-fallback" type="text" /></div>
-          <div class="field"><label for="model-min">Minimum model</label><input id="model-min" type="text" /></div>
-          <div class="field"><label for="rss-title">RSS title</label><input id="rss-title" type="text" /></div>
-          <div class="field"><label for="budget">VRAM budget (MB)</label><input id="budget" type="number" min="1024" step="128" /></div>
-          <div class="field"><label for="reserve">Selection reserve (MB)</label><input id="reserve" type="number" min="0" step="64" /></div>
-          <div class="field"><label for="budget-ratio">Model size budget ratio</label><input id="budget-ratio" type="number" min="0.1" max="1" step="0.01" /></div>
-          <div class="field"><label for="max-frames">Max frames</label><input id="max-frames" type="number" min="1" max="16" step="1" /></div>
-          <div class="field"><label for="context-tokens">Context tokens</label><input id="context-tokens" type="number" min="256" step="256" /></div>
-          <div class="field"><label for="output-tokens">Max output tokens</label><input id="output-tokens" type="number" min="64" step="64" /></div>
-          <div class="field"><label for="scene-threshold">Scene threshold</label><input id="scene-threshold" type="number" min="0.05" max="0.95" step="0.01" /></div>
-          <div class="field"><label for="scene-min">Min scene frames</label><input id="scene-min" type="number" min="1" max="16" step="1" /></div>
-          <div class="field"><label for="max-transcript">Max transcript chars</label><input id="max-transcript" type="number" min="256" step="256" /></div>
-          <div class="field"><label for="transcript-retention">Transcript history per video</label><input id="transcript-retention" type="number" min="1" step="1" /></div>
-          <div class="field"><label for="summary-retention">Summary history per video</label><input id="summary-retention" type="number" min="1" step="1" /></div>
-          <div class="field field-span"><label for="rss-description">RSS description</label><textarea id="rss-description" rows="2"></textarea></div>
-        </div>
-        <div class="toggle-grid">
-          <label class="inline"><input id="auto-pull-models" type="checkbox" /> Auto-pull missing models</label>
-          <label class="inline"><input id="scene-detection" type="checkbox" /> Enable scene-aware frame extraction</label>
-        </div>
-        <div class="actions">
-          <button id="copy-env" class="ghost" type="button"><span>Copy .env block</span></button>
-        </div>
-        <pre id="env-output"></pre>
-        <p class="status" id="env-status"></p>
-      </article>
+      <section class="step-stage">
+        <button id="mobile-step-toggle" type="button" aria-controls="setup-progress" aria-expanded="false">Open setup steps</button>
+        <header id="active-step-copy">
+          <p class="eyebrow">Active step</p>
+          <h2>Guided workbench</h2>
+          <p class="muted">Move from prerequisite checks through the first live processing run.</p>
+        </header>
 
-      <article class="card" id="card-runtime" style="--reveal-delay: 160ms">
-        <h2><span class="step-number">3</span> Runtime Validation</h2>
-        <p class="muted">Validate the live Ollama connection and bootstrap models.</p>
-        <div class="actions">
-          <button id="runtime-check" type="button"><span>Check runtime</span></button>
-          <button id="bootstrap-models" class="warm" type="button"><span>Bootstrap models</span></button>
-        </div>
-        <pre id="runtime-output"></pre>
-        <p class="status" id="runtime-status"></p>
-      </article>
-
-      <article class="card" id="card-process" style="--reveal-delay: 240ms">
-        <h2><span class="step-number">4</span> First Processing Run</h2>
-        <p class="muted">Process a URL or local media path and inspect summary outputs.</p>
-        <div class="field-grid single-column">
-          <div class="field">
-            <label for="process-source">Source URL or file path</label>
-            <input id="process-source" type="text" placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ" />
+        <article class="step-panel card" id="step-panel-prerequisites" style="--reveal-delay: 0ms">
+          <h2><span class="step-number">1</span> Install Prerequisites</h2>
+          <p class="muted">Follow this sequence before starting API operations.</p>
+          <ol>
+            <li>Install Python 3.11+ and make sure <code>python</code> is on <code>PATH</code>.</li>
+            <li>Install Ollama for Windows and open it once so the API is online.</li>
+            <li>Install FFmpeg/FFprobe and confirm both commands resolve in terminal.</li>
+            <li>In this repo run <code>pip install -e .</code>, then <code>python -m vra bootstrap</code>.</li>
+            <li>Run <code>python -m vra serve --bind &lt;bind address&gt;</code> to keep this GUI active.</li>
+          </ol>
+          <div class="actions top-space">
+            <button id="run-diagnostics" class="ghost" type="button"><span>Run dependency diagnostics</span></button>
           </div>
-          <div class="field">
-            <label for="process-title">Title override (optional)</label>
-            <input id="process-title" type="text" />
+          <pre id="diagnostics-output"></pre>
+          <p class="status" id="diagnostics-status"></p>
+        </article>
+
+        <article class="step-panel card wide" id="step-panel-configuration" style="--reveal-delay: 80ms">
+          <h2><span class="step-number">2</span> Configuration Builder</h2>
+          <p class="muted">Edit the full runtime surface and copy the generated <code>.env</code> block.</p>
+          <div class="field-grid">
+            <div class="field"><label for="bind">Bind address</label><input id="bind" type="text" /></div>
+            <div class="field"><label for="api-key">API key</label><input id="api-key" type="text" /></div>
+            <div class="field"><label for="storage">Storage directory</label><input id="storage" type="text" /></div>
+            <div class="field"><label for="db">Database path</label><input id="db" type="text" /></div>
+            <div class="field"><label for="ollama">Ollama API URL</label><input id="ollama" type="text" /></div>
+            <div class="field"><label for="rss-link">RSS self-link</label><input id="rss-link" type="text" /></div>
+            <div class="field"><label for="model-primary">Primary model</label><input id="model-primary" type="text" /></div>
+            <div class="field"><label for="model-fallback">Fallback model</label><input id="model-fallback" type="text" /></div>
+            <div class="field"><label for="model-min">Minimum model</label><input id="model-min" type="text" /></div>
+            <div class="field"><label for="rss-title">RSS title</label><input id="rss-title" type="text" /></div>
+            <div class="field"><label for="budget">VRAM budget (MB)</label><input id="budget" type="number" min="1024" step="128" /></div>
+            <div class="field"><label for="reserve">Selection reserve (MB)</label><input id="reserve" type="number" min="0" step="64" /></div>
+            <div class="field"><label for="budget-ratio">Model size budget ratio</label><input id="budget-ratio" type="number" min="0.1" max="1" step="0.01" /></div>
+            <div class="field"><label for="max-frames">Max frames</label><input id="max-frames" type="number" min="1" max="16" step="1" /></div>
+            <div class="field"><label for="context-tokens">Context tokens</label><input id="context-tokens" type="number" min="256" step="256" /></div>
+            <div class="field"><label for="output-tokens">Max output tokens</label><input id="output-tokens" type="number" min="64" step="64" /></div>
+            <div class="field"><label for="scene-threshold">Scene threshold</label><input id="scene-threshold" type="number" min="0.05" max="0.95" step="0.01" /></div>
+            <div class="field"><label for="scene-min">Min scene frames</label><input id="scene-min" type="number" min="1" max="16" step="1" /></div>
+            <div class="field"><label for="max-transcript">Max transcript chars</label><input id="max-transcript" type="number" min="256" step="256" /></div>
+            <div class="field"><label for="transcript-retention">Transcript history per video</label><input id="transcript-retention" type="number" min="1" step="1" /></div>
+            <div class="field"><label for="summary-retention">Summary history per video</label><input id="summary-retention" type="number" min="1" step="1" /></div>
+            <div class="field field-span"><label for="rss-description">RSS description</label><textarea id="rss-description" rows="2"></textarea></div>
           </div>
-        </div>
-        <div class="actions">
-          <button id="process-run" type="button"><span>Run processing</span></button>
-        </div>
-        <pre id="process-output"></pre>
-        <p class="status" id="process-status"></p>
-      </article>
+          <div class="toggle-grid">
+            <label class="inline"><input id="auto-pull-models" type="checkbox" /> Auto-pull missing models</label>
+            <label class="inline"><input id="scene-detection" type="checkbox" /> Enable scene-aware frame extraction</label>
+          </div>
+          <details class="detail-drawer" id="advanced-config">
+            <summary>Advanced configuration</summary>
+            <p class="muted">Fine-tune runtime capacity, transcript retention, and summarization behavior.</p>
+          </details>
+          <div class="actions">
+            <button id="copy-env" class="ghost" type="button"><span>Copy .env block</span></button>
+          </div>
+          <pre id="env-output"></pre>
+          <p class="status" id="env-status"></p>
+        </article>
+
+        <article class="step-panel card" id="step-panel-runtime" style="--reveal-delay: 160ms">
+          <h2><span class="step-number">3</span> Runtime Validation</h2>
+          <p class="muted">Validate the live Ollama connection and bootstrap models.</p>
+          <div class="actions">
+            <button id="runtime-check" type="button"><span>Check runtime</span></button>
+            <button id="bootstrap-models" class="warm" type="button"><span>Bootstrap models</span></button>
+          </div>
+          <section class="summary-card" id="runtime-summary" data-state="unverified"></section>
+          <details class="detail-drawer" id="runtime-details">
+            <summary>Runtime response details</summary>
+            <pre id="runtime-output"></pre>
+          </details>
+          <p class="status" id="runtime-status"></p>
+        </article>
+
+        <article class="step-panel card" id="step-panel-process" style="--reveal-delay: 240ms">
+          <h2><span class="step-number">4</span> First Processing Run</h2>
+          <p class="muted">Process a URL or local media path and inspect summary outputs.</p>
+          <div class="field-grid single-column">
+            <div class="field">
+              <label for="process-source">Source URL or file path</label>
+              <input id="process-source" type="text" placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ" />
+            </div>
+            <div class="field">
+              <label for="process-title">Title override (optional)</label>
+              <input id="process-title" type="text" />
+            </div>
+          </div>
+          <div class="actions">
+            <button id="process-run" type="button"><span>Run processing</span></button>
+          </div>
+          <section class="summary-card" id="process-summary" data-state="unverified"></section>
+          <details class="detail-drawer" id="process-details">
+            <summary>Processing details</summary>
+            <pre id="process-output"></pre>
+          </details>
+          <p class="status" id="process-status"></p>
+        </article>
+      </section>
     </section>
 
     <footer class="footer">
@@ -115,6 +181,6 @@
   <div class="toast" id="toast"></div>
 
   <script id="setup-defaults" type="application/json">__DEFAULTS_JSON__</script>
-  <script src="static/setup.js" defer></script>
+  <script src="static/setup.js" type="module"></script>
 </body>
 </html>
