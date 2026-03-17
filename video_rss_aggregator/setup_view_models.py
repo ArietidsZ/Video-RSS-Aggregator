@@ -58,7 +58,7 @@ def build_runtime_view(runtime: dict[str, object]) -> dict[str, object]:
     models = [str(model) for model in _as_list(runtime.get("models"))]
     missing_models = [model for model in models if model not in local_models]
 
-    reachable = bool(runtime.get("reachable"))
+    reachable = bool(runtime["reachable"]) if "reachable" in runtime else True
     state = "ready" if reachable and not missing_models else "blocked"
     if not reachable:
         next_action = "Check runtime"
