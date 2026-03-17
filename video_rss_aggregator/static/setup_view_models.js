@@ -60,6 +60,7 @@ function collectProcessModel(result) {
     result.model ||
     result.model_name ||
     result.summary_model ||
+    result.summary?.model_used ||
     result.selected_model ||
     "Model not reported"
   );

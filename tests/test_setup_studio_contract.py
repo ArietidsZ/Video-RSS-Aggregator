@@ -259,3 +259,11 @@ def test_setup_views_expose_common_fixes_and_runtime_readiness_copy() -> None:
     assert '["Available locally", `${localModels.length} ready`],' in views_js.text
     assert "runtimeView?.next_action ||" in views_js.text
     assert "renderCommonFixes," in views_js.text
+
+
+def test_setup_process_summary_view_reads_nested_model_used() -> None:
+    view_models_js = client.get("/static/setup_view_models.js")
+
+    assert view_models_js.status_code == 200
+    assert "function collectProcessModel(result)" in view_models_js.text
+    assert "result.summary?.model_used" in view_models_js.text
