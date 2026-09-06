@@ -1,7 +1,7 @@
 # Video RSS Aggregator (v2)
 
 Local-first video RSS pipeline: poll feeds → acquire video (yt-dlp) →
-transcript (subtitles, faster-whisper fallback) → scene-aware frames
+transcript (subtitles, Qwen3-ASR chain) → scene-aware frames
 (single ffmpeg decode pass) → summary by a local Qwen 3.5 vision model on
 Ollama → publish as RSS. One durable SQLite job queue drives everything.
 
@@ -32,8 +32,9 @@ feeds → [ingest job] → entries ──► videos(pending) ──► [process 
                              (cached, idempotent)    (skipped if cached)
                                     │                     │
                                     ▼                     ▼
-                        faster-whisper (no subs)   ffmpeg frame pass
-                                    │           scene+uniform, 1 decode
+                        Qwen3-ASR chain           ffmpeg frame pass
+                        (mlx-audio / vLLM /       scene+uniform, 1 decode
+                        llama.cpp; faster-whisper)
                                     └───────────┬───────────┘
                                                 ▼
                               VLM summarize (schema JSON, VRAM governor,
@@ -72,7 +73,7 @@ are listed in `docs/v2/SPEC.md` and rendered by the setup studio. Key ones:
 | `VRA_MODELS` | `qwen3.5:4b,qwen3.5:2b,qwen3.5:0.8b` | priority order, first fit wins |
 | `VRA_VRAM_BUDGET_MB` | `8192` | total model+KV budget |
 | `VRA_MAX_FRAMES` | `8` | frames per video sent to the VLM |
-| `VRA_ASR` | `auto` | transcribe when no subtitles (needs faster-whisper) |
+| `VRA_ASR` | `auto` | transcribe when no subtitles (Qwen3-ASR chain) |
 | `VRA_POLL_MINUTES` | `15` | default feed poll interval |
 | `VRA_CPU_WORKERS` / `VRA_GPU_WORKERS` | `2` / `1` | download/decode vs inference concurrency |
 | `VRA_THINK` | `off` | reasoning level for the final summary pass |
@@ -104,4 +105,6 @@ rejected alternatives with evidence: `docs/v2/ABLATED.md`.
 - Python 3.11+ (Windows / macOS / Linux), `ffmpeg`+`ffprobe` on PATH
   (Windows winget Gyan.FFmpeg layout auto-detected)
 - Ollama running locally (`VRA_OLLAMA_BASE_URL`), models pulled by `vra bootstrap`
-- Optional: `pip install .[asr]` → faster-whisper for subtitle-less videos
+- Optional ASR runtimes (subtitles need nothing): `pip install mlx-audio`
+  (Apple Silicon) or `pip install .[asr]` (faster-whisper CPU fallback),
+  or point `VRA_ENGINE_BASE_URL` at a Qwen3-ASR vLLM/llama-server.
