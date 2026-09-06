@@ -62,27 +62,20 @@ All env vars prefixed `VRA_` except `BIND_ADDRESS`, `API_KEY`.
 | VRA_DATA_DIR | .data | storage root |
 | VRA_DATABASE_PATH | $DATA_DIR/vra.db | sqlite path |
 | VRA_OLLAMA_BASE_URL | http://127.0.0.1:11434 | |
-| VRA_MODELS | qwen3.5:4b,qwen3.5:2b,qwen3.5:0.8b | priority list, first fit wins |
-| VRA_PREFER_MLX | auto | auto=on darwin, appends `-mlx` variant if present in /api/tags |
-| VRA_THINK | off | off\|low\|medium\|high\|max — base think level |
-| VRA_KEEP_ALIVE | 15m | model pin duration during bursts |
-| VRA_VRAM_BUDGET_MB | 8192 | total model+KV budget |
-| VRA_RESERVE_MB | 768 | safety reserve |
+| VRA_ENGINE_BASE_URL | http://127.0.0.1:8000/v1 | OpenAI-compatible server (vLLM/SGLang/oMLX/llama-server) |
+| VRA_ENGINE_API_KEY | none | bearer for the engine |
+| VRA_MODEL | qwen3.5-4b | single served model, verified via /v1/models |
+| VRA_MODEL_CTX | 32768 | server max_model_len, drives map-reduce budget |
+| VRA_THINK | off | off\|low\|medium\|high\|max — sent as reasoning_effort when != off |
 | VRA_MAX_FRAMES | 8 | frames sent to VLM |
 | VRA_FRAME_MODE | auto | auto\|scene\|uniform |
 | VRA_SCENE_THRESHOLD | 0.3 | select=gt(scene,T) 0..1 |
 | VRA_FRAME_MAX_DIM | 768 | max(w,h) of extracted JPEG |
 | VRA_MAX_TRANSCRIPT_CHARS | 24000 | hard cap |
-| VRA_CTX_TOKENS | auto | auto = computed from payload, else fixed |
 | VRA_MAX_OUTPUT_TOKENS | 1024 | num_predict |
 | VRA_ASR | auto | auto\|off — transcribe when no subs |
-| VRA_ASR_BACKEND | auto | auto\|mlx\|vllm\|llama_cpp\|faster_whisper (chain, RESEARCH.md S1) |
-| VRA_ASR_MODEL | Qwen/Qwen3-ASR-1.7B | Qwen3-ASR model (0.6B = toast floor) |
-| VRA_ASR_WHISPER_MODEL | small | faster-whisper fallback model |
-| VRA_ENGINE | auto | auto\|ollama\|openai — auto=ollama unless VRA_ENGINE_BASE_URL set |
-| VRA_ENGINE_BASE_URL | none | OpenAI-compatible base (vLLM/SGLang/oMLX/llama-server/frontier API) |
-| VRA_ENGINE_API_KEY | none | bearer for VRA_ENGINE=openai |
-| VRA_ASR_DEVICE | auto | auto\|cpu\|cuda |
+| VRA_ASR_BASE_URL | engine base | /v1/audio/transcriptions server hosting Qwen3-ASR |
+| VRA_ASR_MODEL | Qwen3-ASR-1.7B | served ASR model name (Q8_0 GGUF default posture) |
 | VRA_POLL_MINUTES | 15 | default feed poll interval |
 | VRA_CPU_WORKERS | 2 | download/frames queue workers |
 | VRA_GPU_WORKERS | 1 | summarize queue workers |
@@ -124,27 +117,33 @@ sha1(source_url) when unknown. All content-addressed work keys off it.
 ## Summarization contract (inference/summarize.py)
 
 - Token estimate: latin ≈ chars/3.6, CJK ≈ chars/1.4 (per-char check).
-- num_ctx = ceil((prompt_tokens + image_tokens + output + 256)/512)*512,
-  clamped [1024, 32768]. image_tokens ≈ Σ ceil(w/28)*ceil(h/28)/4 per frame.
+- Budget source: config.model_ctx (server max_model_len). num-size math:
+  image_tokens ≈ Σ ceil(w/28)*ceil(h/28)/4 per frame (JPEG SOF parsed).
 - Transcript ≤ budget → single pass with frames. Else map-reduce: chunk
-  ~3000 tokens, map (text-only, think off, cheap), reduce with frames.
-- format=schema JSON; think=VRA_THINK for the final pass only.
+  ~3000 tokens, map (text-only, cheap), reduce with frames.
+- OpenAI wire: chat.completions with response_format json_schema (strict),
+  images as base64 data URLs on the last user message.
 - Quality gate: summary ≥ 40 chars or ≥2 key points; else ONE retry with
-  error feedback appended, think=low, NO format schema (manual JSON
-  extraction). Then fallback: extractive key points from transcript.
+  error feedback + reasoning_effort=low. STILL failing → RuntimeError:
+  the job fails visibly. NO extractive fallback, NO model ladder
+  (no-fallback mandate).
 - Every attempt records model, tokens, latency into summaries row.
 
-### Engine matrix (RESEARCH.md S4)
+### Engine + quantization posture (RESEARCH.md S4/S4.5 — no-fallback)
 
-- `VRA_ENGINE=ollama` (default): OllamaClient + VRAM governor as specified;
-  `think`+dict-format ValueError guard stands (ollama#10538).
-- `VRA_ENGINE=openai`: OpenAI-compatible `/v1/chat/completions` with
-  `response_format: {type: "json_schema", json_schema: ...}` and base64
-  image parts — covers vLLM / SGLang / oMLX / llama-server / frontier APIs
-  (base_url + api_key). VRAM governance is server-side; model routing
-  still uses VRA_MODELS against `/v1/models`. Implemented by the lead
-  post-merge (`vra/inference/openai_engine.py`); agent-B does NOT
-  implement it.
+- ONE engine path: OpenAI-compatible server (vLLM / SGLang / oMLX /
+  llama-server / frontier APIs) at `VRA_ENGINE_BASE_URL` (default
+  http://127.0.0.1:8000/v1), `VRA_ENGINE_API_KEY` optional. ONE model:
+  `VRA_MODEL` (default qwen3.5-4b) verified against /v1/models.
+- ONE ASR path: /v1/audio/transcriptions hosting Qwen3-ASR
+  (`VRA_ASR_BASE_URL` defaults to the engine base; separate llama-server
+  instance on 8081 is the typical Mac/CPU setup).
+- DEFAULTS ARE QUANTIZED (低算力速度是产品需求): VLM W4 (AWQ/GGUF Q4_K_M/
+  MLX 4-bit per platform), KV q8/fp8 via server flags, ASR Q8_0. The app
+  never pulls/quantizes models; `vra engine` prints the recommended
+  per-platform launch commands and verifies reachability.
+- OllamaClient, VRAM governor, keep_alive pinning, model ladders, MLX-tag
+  preference: CUT (server-side concerns; #10538 guard was Ollama-specific).
 
 Evidence for every stage decision: docs/v2/RESEARCH.md.
 
@@ -169,6 +168,8 @@ Evidence for every stage decision: docs/v2/RESEARCH.md.
 ## CLI (cli.py, entry `vra`)
 
 serve | ingest URL | process URL [--force] | status | bootstrap |
+engine (print per-platform launch commands: quantized checkpoints + KV/MTP
+flags; verify /v1/models reachability) |
 benchmark URL (frames uniqueness + latency scene vs uniform) | cleanup
 
 ## Acceptance (per agent)

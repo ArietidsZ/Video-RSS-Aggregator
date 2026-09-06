@@ -153,6 +153,35 @@ Evidence / constraints:
 This is one adapter, not abstraction-for-its-own-sake: it is what makes
 "best known engine per platform" reachable without forking the pipeline.
 
+## S4.5. Quantization policy (default posture: everything that can be
+# quantized IS quantized — low-compute speed is a product requirement)
+
+Principle: quantize as hard as the accuracy-parity bar allows. WER/benchmark
+retention, not tradition, sets the floor per component.
+
+| component | default | size | why not lower |
+|---|---|---|---|
+| VLM weights (CUDA vLLM) | INT4-AWQ (community `cyankiwi/Qwen3.5-4B-AWQ-4bit`; AngelSlim 4B INT4 recipe ready via configs/qwen3_5 — adopt on release) | ≈2.5 GB | W4A16 retains ≥99% on eval suites; W3 degrades on OCR/ChartQA-style inputs |
+| VLM weights (llama-server, any platform) | GGUF Q4_K_M (`unsloth/Qwen3.5-4B-GGUF`) | ≈2.4 GB | Q3_K_M loses more on vision tokens |
+| VLM weights (oMLX, Apple Silicon) | MLX 4-bit (`lmstudio-community/Qwen3.5-4B-MLX-4bit`) + native MTP recipe | ≈4.0 GB | MLX 8-bit = half the tokens/s on bandwidth-bound M-series |
+| VLM weights (frontier API) | N/A | — | provider-side |
+| KV cache | llama-server `--cache-type-k q8_0 --cache-type-v q8_0` (with `--flash-attn`); vLLM `--kv-cache-dtype fp8` on Hopper/Ada | ~2× KV headroom | q4 KV degrades long-context recall (AA-LCR class tasks) |
+| ASR weights | GGUF Q8_0 (`ggml-org/Qwen3-ASR-1.7B-GGUF`, official) | ≈1.9 GB | WER is directly sensitive to weight noise; 1.7B is already tiny — bf16 only if disk-free |
+| frames | JPEG q=3, 768px | — | already compact |
+
+Decode-speed rationale: LLM decoding is memory-bandwidth-bound; 4-bit
+weights ≈ 2× tokens/s vs 8-bit on the same silicon, which is the single
+biggest lever below GPU class. Speculative decoding: AngelSpec/Eagle3
+drafts exist for Qwen3-4B/VL-4B (not yet Qwen3.5-4B) — adopt when
+released; oMLX native MTP is today's Mac lever (community A/B: Qwen 27B
+48–65 tok/s on M4 Max).
+
+AngelSlim (Tencent/AngelSlim, ★1.6k, arXiv 2602.21233): ADOPTED as
+checkpoint source + self-quantize recipe (FP8-Static / INT4-GPTQ / AWQ /
+GPTAQ / NVFP4; zoo ships Qwen3.5-35B-Q4_K_M GGUF and Qwen3-VL FP8-Static
+2B/4B/8B/32B). CUT as a runtime dependency — the app is checkpoint-
+agnostic by design (`VRA_MODEL` names whatever the server serves).
+
 ## S5. Storage / queue / scheduling (engineering)
 
 SQLite WAL + parameterized SQL + `jobs` table (retry backoff 30·2^n,
@@ -163,18 +192,20 @@ video identity (extractor:id) + content-addressed caches; reprocessing
 suppressed unless forced. No paper-level controversy; ablations recorded
 in ABLATED.md.
 
-## S6. Toast budget (final math, 8 GB unified memory Mac)
+## S6. Toast budget (final math, 8 GB unified memory Mac, all-quantized)
 
 | component | resident |
 |---|---|
-| qwen3.5:4b-mlx (4-bit) + KV (24k ctx, vision) | ≈ 3.0–3.6 GB |
-| Qwen3-ASR-1.7B-8bit (transient, sequential stage) | ≈ 1.9 GB |
+| qwen3.5-4b MLX-4bit + q8_0 KV (24k ctx, vision) | ≈ 4.2 GB |
+| Qwen3-ASR-1.7B Q8_0 GGUF (transient stage) | ≈ 1.9 GB |
 | OS + Python + ffmpeg | ≈ 2.5 GB |
-| **peak (sequential stages, never concurrent)** | **≈ 6.1 GB** |
+| **peak (sequential stages, never concurrent)** | **≈ 6.7 GB** |
 
-Floor tier (CPU-only / 4 GB): qwen3.5:0.8b-q8 (1.0 GB) + ASR-0.6B (0.7 GB
-GGUF, llama-server) — accuracy floor is set by S1/S2 floor models, not by
-pipeline design.
+Floor tier (CPU-only / 4 GB): qwen3.5-4b Q4_K_M via llama-server on CPU
+(≈ 2.4 GB weights + q8 KV) + ASR Q8_0 — accuracy floor is set by S1/S2
+floor models at their DEFAULT QUANTS, not by pipeline design. 4-bit is
+also the speed lever: ≈ 2× decode throughput vs 8-bit on the same
+bandwidth-limited silicon.
 
 ## Verdict summary
 

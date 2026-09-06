@@ -4,14 +4,18 @@ AppRuntime facade consumed by vra/api/app.py and vra/cli.py:
     config, store, queue, ingester, processor, scheduler, summarizer
     start() / close() / stats()
 
-Worker model (physically optimal for one local accelerator):
+No-fallback engine posture: exactly ONE inference path — an
+OpenAI-compatible server (vLLM / SGLang / oMLX / llama-server / frontier
+APIs) reached via EngineClient; one ASR path — /v1/audio/transcriptions
+hosting Qwen3-ASR (separate base URL allowed). All quantization and VRAM
+management are server-side; the app owns routing, budgets, quality gates.
+
+Worker model:
 - `cpu_workers` identical workers pull jobs from the durable queue. CPU/IO
   stages (yt-dlp download, ffmpeg decode) run concurrently across workers.
-- GPU-bound inference is serialized inside VlmSummarizer through
-  Governor.gpu_slot() — a semaphore of `gpu_workers` permits. Downloads of
-  job N+1 therefore overlap inference of job N without VRAM contention.
-- On boot, running jobs stale for > 30 minutes are requeued so a crashed
-  process never wedges the queue.
+- Inference concurrency is managed by the serving engine (continuous
+  batching); the app does not gate it further.
+- On boot, running jobs stale for > 30 minutes are requeued.
 """
 
 from __future__ import annotations
@@ -26,10 +30,9 @@ import httpx
 
 from vra.config import Config
 from vra.contracts import Job, JobKind
-from vra.inference.governor import Governor
-from vra.inference.ollama import OllamaClient
+from vra.inference.engine import EngineClient
 from vra.inference.summarize import VlmSummarizer
-from vra.platform.asr import WhisperTranscriber
+from vra.platform.asr import OpenAiAsrTranscriber
 from vra.platform.media import FfmpegFrameExtractor
 from vra.platform.ytdlp import YtDlpAcquirer
 from vra.service.ingester import FeedIngester, HttpFeedFetcher
@@ -127,6 +130,7 @@ class AppRuntime:
     processor: Processor
     scheduler: PollScheduler
     summarizer: VlmSummarizer
+    engine: EngineClient
     _state: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     async def start(self) -> None:
@@ -175,7 +179,6 @@ class AppRuntime:
     def stats(self) -> dict[str, Any]:
         return {
             "workers": self.config.cpu_workers,
-            "gpu_slots": self.config.gpu_workers,
             "started": bool(self._state.get("started")),
         }
 
@@ -193,11 +196,14 @@ async def build_runtime(config: Config | None = None) -> AppRuntime:
 
     store = SqlVideoStore(database)
     queue = SqlJobQueue(database)
-    client = OllamaClient(resolved.ollama_base_url, timeout_s=float(resolved.timeout_infer_s))
-    governor = Governor(resolved, client)
-    summarizer = VlmSummarizer(resolved, governor, client)
+    engine = EngineClient(
+        resolved.engine_base_url,
+        resolved.engine_api_key,
+        timeout_s=float(resolved.timeout_infer_s),
+    )
+    summarizer = VlmSummarizer(resolved, engine)
     acquirer = YtDlpAcquirer(resolved)
-    transcriber = WhisperTranscriber(resolved)
+    transcriber = OpenAiAsrTranscriber(resolved)
     extractor = FfmpegFrameExtractor(resolved)
     processor = Processor(store, acquirer, transcriber, extractor, summarizer, resolved)
 
@@ -213,4 +219,5 @@ async def build_runtime(config: Config | None = None) -> AppRuntime:
         processor=processor,
         scheduler=scheduler,
         summarizer=summarizer,
+        engine=engine,
     )
