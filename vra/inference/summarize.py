@@ -365,9 +365,15 @@ class VlmSummarizer:
     ``max_frames`` and ``asr_model``.
     """
 
-    def __init__(self, config: Config, engine: EngineClient) -> None:
+    def __init__(
+        self,
+        config: Config,
+        engine: EngineClient,
+        asr_client: EngineClient | None = None,
+    ) -> None:
         self._config = config
         self._engine = engine
+        self._asr_client = asr_client
         self._model: str | None = None
 
     async def close(self) -> None:
@@ -394,6 +400,7 @@ class VlmSummarizer:
         return await self._engine.runtime_status(
             model=self._config.model,
             asr_model=self._config.asr_model,
+            asr_client=self._asr_client,
         )
 
     async def prepare_models(self) -> list[str]:

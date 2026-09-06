@@ -174,6 +174,9 @@ class AppRuntime:
         self._state["started"] = False
         await self.scheduler.stop()
         await self.summarizer.close()
+        if self.summarizer._asr_client is not self.engine:
+            with contextlib.suppress(Exception):
+                await self.summarizer._asr_client.close()
         await self.queue.close()
 
     def stats(self) -> dict[str, Any]:
@@ -201,7 +204,12 @@ async def build_runtime(config: Config | None = None) -> AppRuntime:
         resolved.engine_api_key,
         timeout_s=float(resolved.timeout_infer_s),
     )
-    summarizer = VlmSummarizer(resolved, engine)
+    asr_probe = (
+        engine
+        if resolved.effective_asr_base_url == resolved.engine_base_url
+        else EngineClient(resolved.effective_asr_base_url, resolved.engine_api_key)
+    )
+    summarizer = VlmSummarizer(resolved, engine, asr_client=asr_probe)
     acquirer = YtDlpAcquirer(resolved)
     transcriber = OpenAiAsrTranscriber(resolved)
     extractor = FfmpegFrameExtractor(resolved)
