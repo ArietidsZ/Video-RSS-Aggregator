@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Video RSS Aggregator — setup studio for configuring the engine, ASR, and processing pipeline." />
+  <title>Video RSS Aggregator Studio</title>
+  <base href="__BASE_HREF__" />
+  <link rel="stylesheet" href="static/setup.css" />
+</head>
+<body>
+  <main class="shell" id="setup-workbench">
+    <section class="hero">
+      <p class="eyebrow">Setup Studio</p>
+      <h1>Video RSS Aggregator Installation + Configuration</h1>
+      <p class="subhead">
+        Validate dependencies, build your environment file, start the local
+        engine (Qwen3.5-9B) and ASR server, and run an end-to-end processing request.
+      </p>
+    </section>
+
+    <section class="workbench grid">
+      <aside class="progress-rail" id="setup-progress" data-mobile-open="false">
+        <div id="readiness-summary">
+          <h2>Readiness</h2>
+          <p class="muted">Track setup health before you run the full pipeline.</p>
+        </div>
+        <div id="blocker-summary">
+          <h2>Current blockers</h2>
+          <p class="muted">Diagnostics and runtime checks will surface anything still missing.</p>
+        </div>
+        <ol class="step-list">
+          <li class="step-item" data-step-id="prerequisites" data-state="unverified">
+            <span class="step-number">1</span>
+            <div>
+              <strong>Prerequisites</strong>
+              <p class="muted">Install Python, FFmpeg, yt-dlp, and project dependencies.</p>
+            </div>
+          </li>
+          <li class="step-item" data-step-id="configuration" data-state="unverified">
+            <span class="step-number">2</span>
+            <div>
+              <strong>Configuration</strong>
+              <p class="muted">Build the environment block and review advanced settings.</p>
+            </div>
+          </li>
+          <li class="step-item" data-step-id="runtime" data-state="unverified">
+            <span class="step-number">3</span>
+            <div>
+              <strong>Runtime</strong>
+              <p class="muted">Start the engine and verify the configured models are served.</p>
+            </div>
+          </li>
+          <li class="step-item" data-step-id="process" data-state="unverified">
+            <span class="step-number">4</span>
+            <div>
+              <strong>Process</strong>
+              <p class="muted">Run one end-to-end request and inspect the generated output.</p>
+            </div>
+          </li>
+        </ol>
+        <nav id="common-fixes" aria-label="Common fixes">
+          <h2>Common fixes</h2>
+          <p class="muted">Quick links and remediation steps will appear here.</p>
+        </nav>
+      </aside>
+
+      <section class="step-stage">
+        <button id="mobile-step-toggle" type="button" aria-controls="setup-progress" aria-expanded="false">Open setup steps</button>
+        <header id="active-step-copy">
+          <p class="eyebrow">Active step</p>
+          <h2>Guided workbench</h2>
+          <p class="muted">Move from prerequisite checks through the first live processing run.</p>
+        </header>
+
+        <article class="step-panel card" id="step-panel-prerequisites" style="--reveal-delay: 0ms">
+          <h2><span class="step-number">1</span> Install Prerequisites</h2>
+          <p class="muted">Follow this sequence before starting API operations.</p>
+          <ol>
+            <li>Install Python 3.11+ and make sure <code>python</code> is on <code>PATH</code>.</li>
+            <li>Install FFmpeg/FFprobe and confirm both commands resolve in terminal.</li>
+            <li>In this repo run <code>pip install -e .</code>, then <code>vra doctor</code> to verify your configured engine and ASR servers.</li>
+            <li>Run <code>vra serve --bind &lt;bind address&gt;</code> to keep this GUI active.</li>
+          </ol>
+          <div class="actions top-space">
+            <button id="run-diagnostics" class="ghost" type="button"><span>Run dependency diagnostics</span></button>
+          </div>
+          <pre id="diagnostics-output"></pre>
+          <p class="status" id="diagnostics-status"></p>
+        </article>
+
+        <article class="step-panel card wide" id="step-panel-configuration" style="--reveal-delay: 80ms">
+          <h2><span class="step-number">2</span> Configuration Builder</h2>
+          <p class="muted">Edit the runtime surface and copy the generated <code>.env</code> block.</p>
+          <div class="field-grid">
+            <div class="field"><label for="bind">Bind address</label><input id="bind" type="text" /></div>
+            <div class="field"><label for="api-key">API key</label><input id="api-key" type="text" /></div>
+            <div class="field"><label for="storage">Storage directory</label><input id="storage" type="text" /></div>
+            <div class="field"><label for="db">Database path</label><input id="db" type="text" /></div>
+            <div class="field"><label for="engine">Engine base URL</label><input id="engine" type="text" /></div>
+            <div class="field"><label for="engine-api-key">Engine API key</label><input id="engine-api-key" type="text" /></div>
+            <div class="field"><label for="model">Model (VRA_MODEL)</label><input id="model" type="text" /></div>
+            <div class="field"><label for="model-ctx">Model context (VRA_MODEL_CTX)</label><input id="model-ctx" type="number" min="4096" step="1024" /></div>
+            <div class="field"><label for="think">Think level</label>
+              <select id="think">
+                <option value="off">off</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="max">max</option>
+              </select>
+            </div>
+            <div class="field"><label for="asr">ASR mode</label>
+              <select id="asr">
+                <option value="auto">auto</option>
+                <option value="off">off</option>
+              </select>
+            </div>
+            <div class="field"><label for="asr-base">ASR base URL (optional)</label><input id="asr-base" type="text" /></div>
+            <div class="field"><label for="asr-model">ASR model</label><input id="asr-model" type="text" /></div>
+            <div class="field"><label for="max-frames">Max frames</label><input id="max-frames" type="number" min="1" max="16" step="1" /></div>
+            <div class="field"><label for="frame-mode">Frame mode</label>
+              <select id="frame-mode">
+                <option value="auto">auto</option>
+                <option value="scene">scene</option>
+                <option value="uniform">uniform</option>
+              </select>
+            </div>
+            <div class="field"><label for="scene-threshold">Scene threshold</label><input id="scene-threshold" type="number" min="0.05" max="0.95" step="0.01" /></div>
+            <div class="field"><label for="frame-max-dim">Frame max dimension</label><input id="frame-max-dim" type="number" min="224" step="64" /></div>
+            <div class="field"><label for="max-transcript">Max transcript chars</label><input id="max-transcript" type="number" min="1000" step="500" /></div>
+            <div class="field"><label for="output-tokens">Max output tokens</label><input id="output-tokens" type="number" min="256" step="64" /></div>
+            <div class="field"><label for="poll-minutes">Feed poll interval (minutes)</label><input id="poll-minutes" type="number" min="1" step="1" /></div>
+            <div class="field"><label for="cpu-workers">CPU workers</label><input id="cpu-workers" type="number" min="1" step="1" /></div>
+            <div class="field"><label for="rss-link">RSS self-link</label><input id="rss-link" type="text" /></div>
+            <div class="field"><label for="rss-title">RSS title</label><input id="rss-title" type="text" /></div>
+            <div class="field field-span"><label for="rss-description">RSS description</label><textarea id="rss-description" rows="2"></textarea></div>
+          </div>
+          <details class="detail-drawer" id="advanced-config">
+            <summary>Advanced configuration</summary>
+            <p class="muted">Timeouts and URL policy are env-only: VRA_TIMEOUT_DOWNLOAD, VRA_TIMEOUT_INFER, VRA_ALLOW_LOCAL_PATH, VRA_ALLOW_PRIVATE_NET.</p>
+          </details>
+          <div class="actions">
+            <button id="copy-env" class="ghost" type="button"><span>Copy .env block</span></button>
+          </div>
+          <pre id="env-output"></pre>
+          <p class="status" id="env-status"></p>
+        </article>
+
+        <article class="step-panel card" id="step-panel-runtime" style="--reveal-delay: 160ms">
+          <h2><span class="step-number">3</span> Runtime Validation</h2>
+          <p class="muted">Verify the engine and ASR endpoints serve the configured models.</p>
+          <div class="actions">
+            <button id="runtime-check" type="button"><span>Check runtime</span></button>
+            <button id="bootstrap-models" class="warm" type="button"><span>Verify model availability</span></button>
+          </div>
+          <section class="summary-card" id="runtime-summary" data-state="unverified"></section>
+          <details class="detail-drawer" id="runtime-details">
+            <summary>Runtime response details</summary>
+            <pre id="runtime-output"></pre>
+          </details>
+          <p class="status" id="runtime-status"></p>
+        </article>
+
+        <article class="step-panel card" id="step-panel-process" style="--reveal-delay: 240ms">
+          <h2><span class="step-number">4</span> First Processing Run</h2>
+          <p class="muted">Submit a source URL and follow the async job until the summary lands.</p>
+          <div class="field-grid single-column">
+            <div class="field">
+              <label for="process-source">Source URL</label>
+              <input id="process-source" type="text" placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ" />
+            </div>
+          </div>
+          <div class="actions">
+            <button id="process-run" type="button"><span>Run processing</span></button>
+          </div>
+          <section class="summary-card" id="process-summary" data-state="unverified"></section>
+          <details class="detail-drawer" id="process-details">
+            <summary>Processing details</summary>
+            <pre id="process-output"></pre>
+          </details>
+          <p class="status" id="process-status"></p>
+        </article>
+      </section>
+    </section>
+
+    <footer class="footer">
+      Video RSS Aggregator · Qwen3.5 Vision · Local-first
+    </footer>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script id="setup-defaults" type="application/json">__DEFAULTS_JSON__</script>
+  <script src="static/setup.js" type="module"></script>
+</body>
+</html>
