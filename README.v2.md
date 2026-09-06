@@ -5,12 +5,14 @@ transcript (subtitles, Qwen3-ASR) → scene-aware frames (single ffmpeg
 decode pass) → summary by a local Qwen 3.5 vision model → publish as RSS.
 One durable SQLite job queue drives everything.
 
-**No fallbacks, one efficient stack.** Exactly one inference path
-(OpenAI-compatible server: vLLM / SGLang / oMLX / llama-server / frontier
-APIs) and one ASR path (`/v1/audio/transcriptions` hosting Qwen3-ASR).
-All defaults are quantized — W4 VLM, q8 KV cache, Q8_0 ASR — because
-low-compute speed is a product requirement, and 4-bit ≈ 2× decode
-throughput on bandwidth-bound silicon.
+**No fallbacks, one efficient stack, one posture.** Exactly one inference
+path (OpenAI-compatible server: llama-server / vLLM / SGLang / oMLX /
+frontier APIs) and one ASR path (`/v1/audio/transcriptions` hosting
+Qwen3-ASR). One model choice, chosen by iso-footprint scaling: the
+**largest model at the most aggressive safe quantization** that fits the
+low-overhead envelope — **Qwen3.5-9B @ UD-IQ3_XXS (4.0 GB)**, not a 4B at
+conservative bits. KV cache quantized (q8_0/fp8), ASR at Q8_0 (WER is
+noise-sensitive; the VLM takes the 3-bit hit, transcription doesn't).
 
 ## Quick start
 
@@ -28,16 +30,19 @@ vra status                                          # counts + jobs
 curl -s localhost:8080/rss?limit=20                 # consume the output
 ```
 
-## Recommended engines (checkpoints are the quantization policy)
+## The stack (one posture — `vra engine` prints these exact commands)
 
-| platform | VLM (port 8000) | ASR (port 8081) |
+| role | model · quant | size |
 |---|---|---|
-| Apple Silicon | oMLX + `lmstudio-community/Qwen3.5-4B-MLX-4bit` + native MTP | `llama-server -hf ggml-org/Qwen3-ASR-1.7B-GGUF` (Q8_0) |
-| Linux/WSL2 + NVIDIA | vLLM + Qwen3.5-4B **AWQ-4bit** + `--kv-cache-dtype fp8` | Qwen3-ASR toolkit on vLLM, or llama-server GGUF |
-| CPU-only / generic | `llama-server -hf unsloth/Qwen3.5-4B-GGUF` Q4_K_M + `--cache-type-k q8_0 --cache-type-v q8_0 --flash-attn` | llama-server ASR instance |
+| VLM (port 8000) | **Qwen3.5-9B · UD-IQ3_XXS GGUF** (`unsloth/Qwen3.5-9B-GGUF`) | 4.0 GB |
+| VLM on vLLM/CUDA | Qwen3.5-9B · INT4-AWQ + `--kv-cache-dtype fp8` | ≈5.5 GB |
+| ASR (port 8081) | **Qwen3-ASR-1.7B · Q8_0 GGUF** (`ggml-org`) | 1.9 GB |
 
-Frontier APIs work through the same wire protocol: point
-`VRA_ENGINE_BASE_URL` + `VRA_ENGINE_API_KEY` at any provider.
+`llama-server --cache-type-k q8_0 --cache-type-v q8_0 --flash-attn` on the
+VLM instance. oMLX (Apple Silicon, native MTP) serves the same 9B model
+as an alternative engine. Frontier APIs ride the same wire protocol via
+`VRA_ENGINE_BASE_URL` + `VRA_ENGINE_API_KEY`. Peak working set ≈ 8.4 GB
+(mmap-paged); no tiers, no smaller fallback models.
 
 ## How it works
 
@@ -73,9 +78,8 @@ feeds → [ingest job] → entries ──► videos(pending) ──► [process 
   timeline-spread and capped at `VRA_MAX_FRAMES`.
 - **Accuracy is benchmark-backed, not aspirational** — `docs/v2/RESEARCH.md`:
   Qwen3-ASR-1.7B matches frontier ASR APIs on zh (WER 4.97 vs
-  GPT-4o-Transcribe 15.30 on WenetSpeech); qwen3.5-4b beats GPT-5-Nano /
-  Gemini-2.5-Flash-Lite on VideoMME by 9–12 pts. Peak resident ≈ 6.7 GB
-  on an 8 GB Mac with the default quants.
+  GPT-4o-Transcribe 15.30 on WenetSpeech); qwen3.5-9b beats GPT-5-Nano /
+  Gemini-2.5-Flash-Lite on VideoMME by 9–12 pts — at 4.0 GB of weights.
 
 ## Configuration
 
@@ -85,7 +89,7 @@ All env vars (prefix `VRA_`, plus `BIND_ADDRESS`/`API_KEY`) are listed in
 | var | default | meaning |
 |---|---|---|
 | `VRA_ENGINE_BASE_URL` | `http://127.0.0.1:8000/v1` | OpenAI-compatible server |
-| `VRA_MODEL` | `qwen3.5-4b` | single served model, verified via /v1/models |
+| `VRA_MODEL` | `qwen3.5-9b` | single served model, verified via /v1/models |
 | `VRA_MODEL_CTX` | `32768` | server max_model_len (drives map-reduce) |
 | `VRA_ASR_BASE_URL` | engine base | ASR server (typical: 8081) |
 | `VRA_ASR_MODEL` | `Qwen3-ASR-1.7B` | Q8_0 GGUF default posture |

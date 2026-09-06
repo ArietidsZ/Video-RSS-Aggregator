@@ -11,7 +11,7 @@ def test_version() -> None:
 
 def test_config_defaults() -> None:
     c = Config.from_env(env={})
-    assert c.model == "qwen3.5-4b"
+    assert c.model == "qwen3.5-9b"
     assert c.model_ctx == 32768
     assert c.think == ThinkLevel.OFF
     assert c.frame_mode == FrameMode.AUTO

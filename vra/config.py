@@ -75,7 +75,7 @@ class Config:
     database_path: str = ".data/vra.db"
     engine_base_url: str = "http://127.0.0.1:8000/v1"
     engine_api_key: str | None = None
-    model: str = "qwen3.5-4b"
+    model: str = "qwen3.5-9b"
     model_ctx: int = 32768
     think: ThinkLevel = ThinkLevel.OFF
     asr_base_url: str | None = None
@@ -139,7 +139,7 @@ class Config:
             database_path=db_path,
             engine_base_url=e.get("VRA_ENGINE_BASE_URL", "http://127.0.0.1:8000/v1"),
             engine_api_key=e.get("VRA_ENGINE_API_KEY") or None,
-            model=e.get("VRA_MODEL", "qwen3.5-4b"),
+            model=e.get("VRA_MODEL", "qwen3.5-9b"),
             model_ctx=max(4096, int(e.get("VRA_MODEL_CTX", "32768"))),
             think=think_level,
             asr_base_url=e.get("VRA_ASR_BASE_URL") or None,

@@ -94,6 +94,34 @@ constrained JSON output, quality gate + think-escalation retry,
 extractive fallback. `think` on the final pass only (VRA_THINK), because
 thinking + structured output is unsupported upstream (ollama#10538).
 
+## S2.1. Iso-footprint model selection (single posture, no tiers)
+
+Product directive: ONE low-overhead posture everywhere — no envelope
+tiers. Within the ~8 GB peak envelope, prefer the largest model at the
+most aggressive safe quantization over a smaller model at conservative
+bits (capability-per-byte scaling; Dettmers & Zettlemoyer, k-bit
+inference scaling laws, arXiv:2212.09720 — uniform-4bit optimality does
+not transfer to per-layer importance-mixed quants like Unsloth Dynamic,
+which shift the frontier toward 2–3 bit; AQLM/QuIP# line shows 2–3 bit
+large ≥ 4-bit small at iso-memory).
+
+Measured size ladder (unsloth GGUF):
+
+| model · quant | size | note |
+|---|---|---|
+| Qwen3.5-4B Q4_K_M | 2.40 GB | previous default — CUT as capability-under-spent |
+| **Qwen3.5-9B UD-IQ3_XXS** | **4.02 GB** | **single default** |
+| Qwen3.5-9B UD-IQ2_M | 3.65 GB | headroom-starved alternative |
+| Qwen3.5-35B-A3B UD-IQ2_M | 11.39 GB | exceeds single envelope — not offered (no tiers) |
+
+Why 9B@UD-IQ3_XXS beats 4B@Q4_K_M at ≈ equal +1.6 GB: bf16 baseline gaps
+are largest exactly on our task axis — AA-LCR 63.0 vs 57.0 (+6.0),
+LongBench v2 55.2 vs 50.0 (+5.2), VideoMMMU 78.9 vs 74.1 (+4.8), MLVU
+84.4 vs 82.8 — and well-tuned 3-bit mixed quants retain most of that on
+doc/long-context evals. Residual quant cost is the ablation arbiter
+(`vra benchmark` spot-checks vs the 4B fallback path before cutover;
+HYPOTHESIS flagged, not assumed).
+
 ## S3. Shot / keyframe selection
 
 Candidates: ffmpeg `select=gt(scene,T)` (classical scene score),
@@ -159,14 +187,15 @@ This is one adapter, not abstraction-for-its-own-sake: it is what makes
 Principle: quantize as hard as the accuracy-parity bar allows. WER/benchmark
 retention, not tradition, sets the floor per component.
 
-| component | default | size | why not lower |
+| component | single default | size | why not lower |
 |---|---|---|---|
-| VLM weights (CUDA vLLM) | INT4-AWQ (community `cyankiwi/Qwen3.5-4B-AWQ-4bit`; AngelSlim 4B INT4 recipe ready via configs/qwen3_5 — adopt on release) | ≈2.5 GB | W4A16 retains ≥99% on eval suites; W3 degrades on OCR/ChartQA-style inputs |
-| VLM weights (llama-server, any platform) | GGUF Q4_K_M (`unsloth/Qwen3.5-4B-GGUF`) | ≈2.4 GB | Q3_K_M loses more on vision tokens |
-| VLM weights (oMLX, Apple Silicon) | MLX 4-bit (`lmstudio-community/Qwen3.5-4B-MLX-4bit`) + native MTP recipe | ≈4.0 GB | MLX 8-bit = half the tokens/s on bandwidth-bound M-series |
+| VLM model (all engines) | **Qwen3.5-9B** | 17.9 GB bf16 | iso-footprint pick (S2.1); no smaller model anywhere in the stack |
+| VLM weights (llama-server, default engine) | **UD-IQ3_XXS GGUF** (`unsloth/Qwen3.5-9B-GGUF`) | 4.02 GB | per-layer importance-mixed 3-bit; quality floor is benchmark-arbitrated |
+| VLM weights (vLLM/SGLang, CUDA) | INT4-AWQ/GPTQ 9B checkpoint (community now; AngelSlim 9B recipe via configs/qwen3_5) | ≈5.5 GB | W4A16 is the lowest vLLM-native bit with solid kernels |
+| VLM weights (oMLX, Apple Silicon) | MLX 3/4-bit 9B + native MTP | ≈4–5 GB | same model, same posture |
 | VLM weights (frontier API) | N/A | — | provider-side |
-| KV cache | llama-server `--cache-type-k q8_0 --cache-type-v q8_0` (with `--flash-attn`); vLLM `--kv-cache-dtype fp8` on Hopper/Ada | ~2× KV headroom | q4 KV degrades long-context recall (AA-LCR class tasks) |
-| ASR weights | GGUF Q8_0 (`ggml-org/Qwen3-ASR-1.7B-GGUF`, official) | ≈1.9 GB | WER is directly sensitive to weight noise; 1.7B is already tiny — bf16 only if disk-free |
+| KV cache | llama-server `--cache-type-k q8_0 --cache-type-v q8_0` (with `--flash-attn`); vLLM `--kv-cache-dtype fp8` | ~2× KV headroom | q4 KV degrades long-context recall (AA-LCR class tasks) |
+| ASR model (all engines) | **Qwen3-ASR-1.7B GGUF Q8_0** (`ggml-org/…`, official) | 1.9 GB | WER is directly sensitive to weight noise — 8-bit is the ASR floor; bf16 only if disk-free |
 | frames | JPEG q=3, 768px | — | already compact |
 
 Decode-speed rationale: LLM decoding is memory-bandwidth-bound; 4-bit
@@ -192,27 +221,28 @@ video identity (extractor:id) + content-addressed caches; reprocessing
 suppressed unless forced. No paper-level controversy; ablations recorded
 in ABLATED.md.
 
-## S6. Toast budget (final math, 8 GB unified memory Mac, all-quantized)
+## S6. Single-stack budget (the only posture — no tiers)
 
 | component | resident |
 |---|---|
-| qwen3.5-4b MLX-4bit + q8_0 KV (24k ctx, vision) | ≈ 4.2 GB |
-| Qwen3-ASR-1.7B Q8_0 GGUF (transient stage) | ≈ 1.9 GB |
+| Qwen3.5-9B UD-IQ3_XXS + q8_0 KV (32k ctx, vision) | ≈ 4.0–5.0 GB |
+| Qwen3-ASR-1.7B Q8_0 GGUF (mmap-paged, sequential stage) | ≈ 1.9 GB |
 | OS + Python + ffmpeg | ≈ 2.5 GB |
-| **peak (sequential stages, never concurrent)** | **≈ 6.7 GB** |
+| **peak working set** | **≈ 8.4 GB** (mmap paging absorbs the overlap) |
 
-Floor tier (CPU-only / 4 GB): qwen3.5-4b Q4_K_M via llama-server on CPU
-(≈ 2.4 GB weights + q8 KV) + ASR Q8_0 — accuracy floor is set by S1/S2
-floor models at their DEFAULT QUANTS, not by pipeline design. 4-bit is
-also the speed lever: ≈ 2× decode throughput vs 8-bit on the same
-bandwidth-limited silicon.
+One envelope, one model choice: 9B@3-bit + ASR@8-bit. Decode speed at
+3-bit stays ≈ 2× the 8-bit alternative on the same silicon — the
+iso-footprint directive and the low-overhead directive are the same
+decision at this size ladder. Everything smaller spends capability it
+could have had; everything larger breaks the single envelope (35B-A3B
+UD-IQ2_M = 11.4 GB — deliberately NOT offered).
 
 ## Verdict summary
 
 | stage | pick | runner-up kept as | evidence strength |
 |---|---|---|---|
-| ASR | Qwen3-ASR 1.7B (0.6B floor) | faster-whisper int8 fallback | WER tables, multi-benchmark |
-| VLM | qwen3.5:4b | 9b on ≥16 GB; 0.8b floor | VideoMME/MLVU/AA-LCR tables |
+| ASR | Qwen3-ASR-1.7B @ Q8_0 | none — single posture | WER tables, multi-benchmark |
+| VLM | qwen3.5-9b @ UD-IQ3_XXS (4.02 GB) | none — single posture | S2.1 iso-footprint + bf16 deltas + scaling laws |
 | frames | ffmpeg scene+uniform, dHash | TransNetV2 optional extra | experimental + F1 literature |
 | engine | ollama default, OpenAI-compat adapter | oMLX/vLLM/SGLang per platform | capability matrices, perf claims |
 | orchestration | SQLite queue, asyncio workers | — | engineering judgment |

@@ -64,7 +64,7 @@ All env vars prefixed `VRA_` except `BIND_ADDRESS`, `API_KEY`.
 | VRA_OLLAMA_BASE_URL | http://127.0.0.1:11434 | |
 | VRA_ENGINE_BASE_URL | http://127.0.0.1:8000/v1 | OpenAI-compatible server (vLLM/SGLang/oMLX/llama-server) |
 | VRA_ENGINE_API_KEY | none | bearer for the engine |
-| VRA_MODEL | qwen3.5-4b | single served model, verified via /v1/models |
+| VRA_MODEL | qwen3.5-9b | single served model, verified via /v1/models (iso-footprint pick, RESEARCH S2) |
 | VRA_MODEL_CTX | 32768 | server max_model_len, drives map-reduce budget |
 | VRA_THINK | off | off\|low\|medium\|high\|max — sent as reasoning_effort when != off |
 | VRA_MAX_FRAMES | 8 | frames sent to VLM |
