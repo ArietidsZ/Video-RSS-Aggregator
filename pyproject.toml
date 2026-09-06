@@ -1,7 +1,7 @@
 [project]
 name = "video-rss-aggregator"
 version = "0.1.0"
-description = "Video RSS summarization with Qwen 3.5 vision models and 8GB VRAM governance"
+description = "Local-first video RSS pipeline: poll feeds, acquire, transcribe, frame, summarize with a local VLM, publish RSS"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 dependencies = [
@@ -22,7 +22,7 @@ dev = [
 ]
 
 [project.scripts]
-vra = "cli:cli"
+vra = "vra.cli:cli"
 
 [build-system]
 requires = ["setuptools>=75"]
@@ -30,24 +30,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 include-package-data = true
-py-modules = [
-    "vra",
-    "cli",
-    "core_config",
-    "service_media",
-    "service_ollama",
-    "service_summarize",
-    "adapter_gui",
-    "adapter_api",
-    "adapter_rss",
-    "adapter_storage",
-]
-
 [tool.setuptools.packages.find]
-include = ["video_rss_aggregator*", "vra*"]
+include = ["vra*"]
 
 [tool.setuptools.package-data]
-video_rss_aggregator = ["templates/*.html", "static/*.css", "static/*.js"]
+vra = ["templates/*.html", "static/*.css", "static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -68,4 +55,4 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-"video_rss_aggregator/api.py" = ["B008"]
+"vra/api/app.py" = ["B008"]

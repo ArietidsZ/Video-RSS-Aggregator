@@ -35,6 +35,3 @@ jobs:
       - name: Run v2 tests with pytest
         run: uv run pytest tests/v2 -q
 
-      - name: Run legacy tests until v2 cutover
-        run: uv run pytest tests -q --ignore=tests/v2
-        continue-on-error: true
