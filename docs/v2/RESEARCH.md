@@ -239,6 +239,8 @@ UD-IQ2_M = 11.4 GB — deliberately NOT offered).
 
 ## Verdict summary
 
+> **SUPERSEDED (2026-09-06):** envelope redefined to ~4 GB VRAM + ~4 GB RAM; quantization frontier moved to GSQ/RCO (non-uniform, same-format refinement); engine stance re-derived from live evidence. See **S7** below — S2.1's IQ3_XXS recipe, S4's engine table, and S4.5's uniform-quant policy are historical record only. The verdict table's *structural* rows (single posture, no tiers, SQLite queue) stand.
+
 | stage | pick | runner-up kept as | evidence strength |
 |---|---|---|---|
 | ASR | Qwen3-ASR-1.7B @ Q8_0 | none — single posture | WER tables, multi-benchmark |
@@ -246,3 +248,73 @@ UD-IQ2_M = 11.4 GB — deliberately NOT offered).
 | frames | ffmpeg scene+uniform, dHash | TransNetV2 optional extra | experimental + F1 literature |
 | engine | ollama default, OpenAI-compat adapter | oMLX/vLLM/SGLang per platform | capability matrices, perf claims |
 | orchestration | SQLite queue, asyncio workers | — | engineering judgment |
+
+## S7. Model-phase dossier (researched 2026-09-06, live-verified; execution deferred)
+
+User directive: **frameworks first, model last.** Everything below is verified via live web
+inspection (HF configs/cards, GitHub repos) — zero memory-based claims. The framework
+(`EngineClient` + `OpenAiAsrTranscriber` + config URLs) already covers every candidate here;
+S7 outcomes require only config defaults + the `vra engine` launcher recipe.
+
+### S7.1 Envelope
+~4 GB VRAM + ~4 GB RAM total (user-stated). Supersedes S2.1/S4/S6 assumptions. "Piece of toast"
+now means this envelope; 5090-class machines (user's Ninfer box) are reference, not target.
+
+### S7.2 Architecture landscape (HF config.json, read directly)
+- **Qwen3.5-9B** — `Qwen3_5ForConditionalGeneration`, dense GDN hybrid: 32 layers,
+  `full_attention_interval=4` → **8 full-attn (GQA 4 KV heads × 256 head_dim) + 24 linear**;
+  hidden 4096, inter 12288; native vision (image+video tokens, SigLIP-class tower ~0.45 B);
+  **no audio input** (ASR stays a separate stage). BF16 = 19.31 GB (9.65 B params incl vision).
+- **Qwen3.8-27B** — same family, 64 layers → 16 full-attn, hidden 5120, MTP 1-layer draft, no audio.
+- Family floor is 27 B for 3.6/3.8; `Qwen3.8-Flash-Next` is a ~409 GB MoE (131 shards, measured).
+  ⇒ **Qwen3.5-9B is the only GDN-hybrid + vision member that fits 4 GB.**
+
+### S7.3 Quantization frontier: GSQ + RCO (ISTA-DASLab; arXiv 2604.18556 / 2605.00649)
+- **GSQ**: Gumbel-Softmax-learned per-coordinate grid + per-group scales; layer-wise offload
+  (self-quantization feasible on small VRAM); official wrapper covers `Qwen3.5/3.6 dense`.
+- **RCO**: per-tensor mixed-precision allocation under exact size budget (GGUF K-Quant types).
+- Deploy paths: (a) **refined GGUF K-Quant** — drop-in on GGUF runtimes; (b) **compressed-tensors
+  HF → vLLM auto-detect** (verified via `Qwen3.8-27B-3Bit-GSQ`: vLLM 0.27.1 + embedding patch,
+  11.83 GB w/ vision / 10.90 text-only, requires sm ≥ 80).
+- Evidence (same file size/format, GSQ-refined vs unsloth UD init): 4B Q2_K_XL AIME25
+  **26.67→60.00**, GPQA-D 56.06→67.17, IFEval 76.14→82.97, GSM8K 79.61→88.48, MMLU-Pro
+  66.78→70.87. 8B Q2_K avg 50.03→56.28. 27B GSQ-RCO: 2.50 bpw/8.4 GB recovery **100.3%**,
+  2.75 bpw/9.3 GB **101.8%**; matched-size IQ2_XS beats UD-IQ2_S by +10.00 AIME25 / +8.59 GPQA.
+- **1.25-bit verdict:** no public 27B artifact (GSQ-RCO floor 2.50 bpw). 1.25-bit releases exist
+  only for 1.8–3 B translation models (AngelSlim Hy-MT). 27B@1.25 ≈ 4.2 GB is not purchasable —
+  do not plan around it.
+
+### S7.4 KV policy (GDN hybrid)
+Only ¼ of layers carry KV. Qwen3.5-9B bytes/token: bf16 32 KiB, int8/fp8 16 KiB,
+**K8V4-type (q8_0 K + q4_0 V) 12 KiB** → @24k ctx: 0.75 / 0.38 / 0.28 GB.
+- K8V4 is a first-class KV representation in Ninfer (`bf16/int8/fp8/nvfp4/k8v4`; perf baseline
+  INT8 group-64). User reports K8V4 > INT8/FP8 quality on their 5090 deployment — **to be
+  confirmed by our own PPL + task ablation before freeze**, not accepted on authority.
+
+### S7.5 Engine matrix vs 4 GB envelope (all live-verified)
+| Engine | Verdict | Evidence |
+|---|---|---|
+| Ninfer | dead @4GB / reference for 5090 | hard `sm_120a`, Linux-only, registered artifacts (3.6/3.8-27B gwi+nvfp4, 35B-A3B gwi); 27B gwi 16.96 GiB; AIME25 96.67 / GPQA-D 87.37 / ERQA 66.25 (vision) / IFBench 77.67; NVFP4 ≥ gwi on 4/5 benchmarks at 2.4× decode |
+| vLLM (compressed-tensors) | ≥12 GB machines only | GSQ path verified; runtime footprint exceeds 4 GB VRAM/RAM for 9B-class VLM |
+| ExLlamaV3 / EXL3 | alternative, pending vision check | official `turboderp/Qwen3.5-9B-exl3` + 27B full ladder; community 2.0/2.5 bpw; **vision/mmproj support unverified** |
+| GGUF runtime | **arithmetic-forced executor @4GB** | native GSQ K-Quant target; mtmd vision verified for family (27B card); MTP draft builds (`-mtp`) verified; smallest overhead. User's kernel-efficiency objection noted — irrelevant at C=1-2 batch summarization |
+
+### S7.6 ASR (WER table read from Qwen3-ASR-0.6B card)
+- **0.6B**: zh WenetSpeech 5.97\|6.88, en Librispeech 2.11\|4.55, GigaSpeech 8.88 (beats
+  Whisper-large-v3 9.76 and Doubao 9.55).
+- **1.7B**: zh 4.97\|5.88, en 1.63\|3.38, GigaSpeech 8.45. GPT-4o-Transcribe zh 15.30\|32.27.
+- Both crush frontier APIs on zh; 0.6B trails 1.7B by ~1 WER pt. 0.6B@Q8 ≈ 0.7 GB RAM vs
+  1.7B@Q8 1.9 GB → **0.6B default** under 4 GB RAM, pending a 20-video spot check at model phase.
+
+### S7.7 Model-phase execution plan (deferred; nothing here blocks the framework)
+1. **Artifacts**: GSQ(+RCO) on Qwen3.5-9B → 2.5 bpw primary / 2.75 bpw alt, init from UD GGUF,
+   `-mtp` build included, allocation dumps archived. One-time (local offloaded run or rented GPU).
+2. **KV ablation**: bf16 vs q8_0/q4_0 vs q8_0/q8_0 — fixed PPL corpus + our summarization task
+   set; freeze lowest-bit within noise.
+3. **Runtime bake-off**: ExLlamaV3 vision-support check first; else GGUF runtime. Single posture.
+4. **ASR pick**: 0.6B vs 1.7B on real videos (WER + downstream summary quality), quantize Q8.
+5. Set config defaults; `vra engine` materializes the chosen launch recipe.
+
+VRAM ledger @2.5 bpw, 24k ctx: weights 3.02 + KV(q8_0/q4_0) 0.28 + mmproj Q8 0.45 + CUDA ctx
+0.2-0.4 ≈ **3.95-4.15 GB** (knobs: RCO→2.25-2.4 bpw, mmproj→CPU, ctx→16k). RAM ledger:
+app 0.3-0.5 + ffmpeg/yt-dlp peak 0.8 + ASR-0.6B 0.9 + runtime 0.3 ≈ **2.3-2.5 GB**.
