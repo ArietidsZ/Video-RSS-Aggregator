@@ -17,6 +17,7 @@ Worker model (physically optimal for one local accelerator):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -162,10 +163,8 @@ class AppRuntime:
         for task in tasks:
             task.cancel()
         for task in tasks:
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
         self._state["tasks"] = []
         self._state.pop("stop", None)
         self._state["started"] = False

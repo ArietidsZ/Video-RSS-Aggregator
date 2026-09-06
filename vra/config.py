@@ -28,6 +28,20 @@ class AsrMode(StrEnum):
     OFF = "off"
 
 
+class AsrBackend(StrEnum):
+    AUTO = "auto"
+    MLX = "mlx"
+    VLLM = "vllm"
+    LLAMA_CPP = "llama_cpp"
+    FASTER_WHISPER = "faster_whisper"
+
+
+class Engine(StrEnum):
+    AUTO = "auto"
+    OLLAMA = "ollama"
+    OPENAI = "openai"
+
+
 class Select(StrEnum):
     AUTO = "auto"
     OFF = "off"
@@ -86,7 +100,12 @@ class Config:
     ctx_tokens: str = "auto"
     max_output_tokens: int = 1024
     asr: AsrMode = AsrMode.AUTO
-    asr_model: str = "small"
+    asr_model: str = "Qwen/Qwen3-ASR-1.7B"
+    asr_backend: AsrBackend = AsrBackend.AUTO
+    asr_whisper_model: str = "small"
+    engine: Engine = Engine.AUTO
+    engine_base_url: str | None = None
+    engine_api_key: str | None = None
     asr_device: Select = Select.AUTO
     poll_minutes: int = 15
     cpu_workers: int = 2
@@ -173,7 +192,16 @@ class Config:
             ctx_tokens=e.get("VRA_CTX_TOKENS", "auto"),
             max_output_tokens=max(256, int(e.get("VRA_MAX_OUTPUT_TOKENS", "1024"))),
             asr=asr_e,
-            asr_model=e.get("VRA_ASR_MODEL", "small"),
+            asr_model=e.get("VRA_ASR_MODEL", "Qwen/Qwen3-ASR-1.7B"),
+            asr_backend=(lambda v: AsrBackend(v) if v in {b.value for b in AsrBackend} else AsrBackend.AUTO)(
+                e.get("VRA_ASR_BACKEND", "auto").strip().lower()
+            ),
+            asr_whisper_model=e.get("VRA_ASR_WHISPER_MODEL", "small"),
+            engine=(lambda v: Engine(v) if v in {x.value for x in Engine} else Engine.AUTO)(
+                e.get("VRA_ENGINE", "auto").strip().lower()
+            ),
+            engine_base_url=e.get("VRA_ENGINE_BASE_URL") or None,
+            engine_api_key=e.get("VRA_ENGINE_API_KEY") or None,
             asr_device=_select(e.get("VRA_ASR_DEVICE"), Select.AUTO),
             poll_minutes=max(1, int(e.get("VRA_POLL_MINUTES", "15"))),
             cpu_workers=max(1, int(e.get("VRA_CPU_WORKERS", "2"))),

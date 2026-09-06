@@ -76,7 +76,12 @@ All env vars prefixed `VRA_` except `BIND_ADDRESS`, `API_KEY`.
 | VRA_CTX_TOKENS | auto | auto = computed from payload, else fixed |
 | VRA_MAX_OUTPUT_TOKENS | 1024 | num_predict |
 | VRA_ASR | auto | auto\|off — transcribe when no subs |
-| VRA_ASR_MODEL | small | faster-whisper model name |
+| VRA_ASR_BACKEND | auto | auto\|mlx\|vllm\|llama_cpp\|faster_whisper (chain, RESEARCH.md S1) |
+| VRA_ASR_MODEL | Qwen/Qwen3-ASR-1.7B | Qwen3-ASR model (0.6B = toast floor) |
+| VRA_ASR_WHISPER_MODEL | small | faster-whisper fallback model |
+| VRA_ENGINE | auto | auto\|ollama\|openai — auto=ollama unless VRA_ENGINE_BASE_URL set |
+| VRA_ENGINE_BASE_URL | none | OpenAI-compatible base (vLLM/SGLang/oMLX/llama-server/frontier API) |
+| VRA_ENGINE_API_KEY | none | bearer for VRA_ENGINE=openai |
 | VRA_ASR_DEVICE | auto | auto\|cpu\|cuda |
 | VRA_POLL_MINUTES | 15 | default feed poll interval |
 | VRA_CPU_WORKERS | 2 | download/frames queue workers |
@@ -102,7 +107,9 @@ sha1(source_url) when unknown. All content-addressed work keys off it.
    unless job forced=True.
 2. **process** (service/processor.py): given video →
    acquire (platform.ytdlp: meta+subs, download only if frames needed) →
-   transcript (subtitles.py; else asr.py if enabled) →
+   transcript (subtitles.py; else ASR chain per RESEARCH.md S1:
+   Qwen3-ASR via mlx-audio / vLLM toolkit / llama-server GGUF, then
+   faster-whisper int8 fallback) →
    frames (media.py single decode pass: scene-select + uniform-grid blend,
    dHash dedup, quality rank, cap VRA_MAX_FRAMES) →
    summarize (inference.summarize) → persist rows, mark done. CPU stage and
@@ -126,6 +133,20 @@ sha1(source_url) when unknown. All content-addressed work keys off it.
   error feedback appended, think=low, NO format schema (manual JSON
   extraction). Then fallback: extractive key points from transcript.
 - Every attempt records model, tokens, latency into summaries row.
+
+### Engine matrix (RESEARCH.md S4)
+
+- `VRA_ENGINE=ollama` (default): OllamaClient + VRAM governor as specified;
+  `think`+dict-format ValueError guard stands (ollama#10538).
+- `VRA_ENGINE=openai`: OpenAI-compatible `/v1/chat/completions` with
+  `response_format: {type: "json_schema", json_schema: ...}` and base64
+  image parts — covers vLLM / SGLang / oMLX / llama-server / frontier APIs
+  (base_url + api_key). VRAM governance is server-side; model routing
+  still uses VRA_MODELS against `/v1/models`. Implemented by the lead
+  post-merge (`vra/inference/openai_engine.py`); agent-B does NOT
+  implement it.
+
+Evidence for every stage decision: docs/v2/RESEARCH.md.
 
 ## API (api/app.py) — all JSON errors {"detail": str}
 

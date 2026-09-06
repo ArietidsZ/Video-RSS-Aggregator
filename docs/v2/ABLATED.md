@@ -18,4 +18,7 @@ decided it. Revisit only when evidence changes.
 | Transcription (ASR) always on | **OPT-IN dep** | faster-whisper is an optional extra (`pip install .[asr]`); runtime autodetects. Subtitles remain the zero-cost path. |
 | ORM / migrations framework | **CUT** | One frozen DDL script + `schema_version` row; aiosqlite parameterized SQL. |
 | `-frame_pts true` filename timestamps | **DEAD** | Verified broken on ffmpeg 8.1.2 (filenames stay sequential). Replaced by `-fps_mode passthrough` + `metadata=print` scene log (verified: file k ↔ log line k) and analytic uniform ts. |
+| ASR always on / faster-whisper as primary | **SUPERSEDED by RESEARCH.md S1** | Qwen3-ASR WER tables: 0.6B beats Whisper-large-v3 2-4× on zh, matches frontier APIs; 1.7B (1.9 GB 8-bit) becomes primary, faster-whisper int8 demoted to CPU fallback. |
+| TransNetV2 shot detector | **CUT from core, optional extra** | F1 0.868 (BBC) leads classical ~0.1-0.2, but torch wheel breaks toast tier; uniform+scene blend + dHash bounds the damage. Re-evaluate via benchmark. |
+| Single Ollama-only engine | **REPLACED by engine matrix** | oMLX (Apple Silicon continuous batching + KV tiering + MTP), vLLM v0.28 (Qwen3.5 + Qwen3-ASR arch support, guided_json), SGLang(-Omni) — one OpenAI-compat adapter reaches them all. |
 | Legacy root shims (`adapter_*.py`, `service_*.py`, `core_config.py`, `video_rss_aggregator/`) | **DELETE at cutover** | v2 `vra/` package supersedes; shims existed only for compatibility. |
