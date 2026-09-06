@@ -122,9 +122,7 @@ class Config:
         parsed = urlparse(url)
         if parsed.scheme in {"http", "https"} and parsed.hostname:
             return True
-        if local_paths_enabled and parsed.scheme in {"", "file"}:
-            return True
-        return False
+        return local_paths_enabled and parsed.scheme in {"", "file"}
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Config:
