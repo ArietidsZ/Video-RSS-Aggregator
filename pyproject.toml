@@ -35,7 +35,6 @@ py-modules = [
     "core_config",
     "service_media",
     "service_ollama",
-    "service_transcribe",
     "service_summarize",
     "adapter_gui",
     "adapter_api",
@@ -63,5 +62,8 @@ exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F"]
+select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"video_rss_aggregator/api.py" = ["B008"]

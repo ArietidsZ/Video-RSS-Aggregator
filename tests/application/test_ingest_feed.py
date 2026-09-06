@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -185,7 +185,7 @@ class FakeFeedSourceWithPublishedEntries:
                     source_url="https://example.com/published",
                     title="Published item",
                     guid="published-guid",
-                    published_at=datetime(2024, 1, 2, 3, 4, tzinfo=timezone.utc),
+                    published_at=datetime(2024, 1, 2, 3, 4, tzinfo=UTC),
                 ),
             ),
         )
@@ -209,6 +209,6 @@ async def test_ingest_feed_preserves_publication_timestamps() -> None:
     saved_entry = videos.saved[0][1]
 
     assert saved_feed.entries[0].published_at == datetime(
-        2024, 1, 2, 3, 4, tzinfo=timezone.utc
+        2024, 1, 2, 3, 4, tzinfo=UTC
     )
-    assert saved_entry.published_at == datetime(2024, 1, 2, 3, 4, tzinfo=timezone.utc)
+    assert saved_entry.published_at == datetime(2024, 1, 2, 3, 4, tzinfo=UTC)

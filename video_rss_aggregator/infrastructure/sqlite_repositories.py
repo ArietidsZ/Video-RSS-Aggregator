@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from video_rss_aggregator.application.ports import FetchedFeed, FetchedFeedEntry
-from video_rss_aggregator.domain.models import PreparedMedia
-from video_rss_aggregator.domain.models import SummaryResult
+from video_rss_aggregator.domain.models import PreparedMedia, SummaryResult
 from video_rss_aggregator.domain.publication import PublicationRecord
 from video_rss_aggregator.storage import Database
 

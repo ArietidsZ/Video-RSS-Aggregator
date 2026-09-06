@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import base64
+import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import httpx
+
+log = logging.getLogger(__name__)
+
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BASE_DELAY = 1.0
 
 
 MODEL_SIZE_HINT_MB: dict[str, int] = {
@@ -37,7 +45,7 @@ class ChatResult:
 
 
 def model_size_hint_bytes(model: str) -> int | None:
-    hint_mb = MODEL_SIZE_HINT_MB.get(model.lower().strip(), None)
+    hint_mb = MODEL_SIZE_HINT_MB.get(model.lower().strip())
     if hint_mb is None:
         return None
     return hint_mb * 1024 * 1024
@@ -144,16 +152,55 @@ class OllamaClient:
         if options:
             payload["options"] = options
 
-        resp = await self._client.post("/api/chat", json=payload, timeout=600)
-        if resp.status_code >= 400:
-            raise RuntimeError(resp.text.strip() or f"Ollama error {resp.status_code}")
+        return await self._retry_post("/api/chat", payload, model, timeout=600)
 
-        data = resp.json()
-        msg = data.get("message", {}) if isinstance(data, dict) else {}
-        content = str(msg.get("content", ""))
-        return ChatResult(
-            text=content,
-            model=str(data.get("model", model)),
-            prompt_tokens=int(data.get("prompt_eval_count", 0) or 0),
-            completion_tokens=int(data.get("eval_count", 0) or 0),
-        )
+    async def _retry_post(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        model: str,
+        timeout: float,
+    ) -> ChatResult:
+        last_error: Exception | None = None
+        for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+            try:
+                resp = await self._client.post(url, json=payload, timeout=timeout)
+                if resp.status_code < 500:
+                    if resp.status_code >= 400:
+                        raise RuntimeError(
+                            resp.text.strip() or f"Ollama error {resp.status_code}"
+                        )
+                    data = resp.json()
+                    msg = data.get("message", {}) if isinstance(data, dict) else {}
+                    content = str(msg.get("content", ""))
+                    return ChatResult(
+                        text=content,
+                        model=str(data.get("model", model)),
+                        prompt_tokens=int(data.get("prompt_eval_count", 0) or 0),
+                        completion_tokens=int(data.get("eval_count", 0) or 0),
+                    )
+
+                log.warning(
+                    "Ollama server error %d on attempt %d/%d for model %s",
+                    resp.status_code,
+                    attempt,
+                    _RETRY_MAX_ATTEMPTS,
+                    model,
+                )
+                last_error = RuntimeError(
+                    resp.text.strip() or f"Ollama error {resp.status_code}"
+                )
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as exc:
+                log.warning(
+                    "Ollama connection error on attempt %d/%d for model %s: %s",
+                    attempt,
+                    _RETRY_MAX_ATTEMPTS,
+                    model,
+                    exc,
+                )
+                last_error = exc
+
+            if attempt < _RETRY_MAX_ATTEMPTS:
+                await asyncio.sleep(_RETRY_BASE_DELAY * (2 ** (attempt - 1)))
+
+        raise last_error if last_error else RuntimeError(f"All retries failed for {model}")

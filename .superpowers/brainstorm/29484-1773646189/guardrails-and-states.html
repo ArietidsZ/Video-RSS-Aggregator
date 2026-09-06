@@ -1,0 +1,113 @@
+<h2>Section 2: Guardrails and step states</h2>
+<p class="subtitle">This section defines how each setup step communicates readiness, blocking issues, next actions, and advanced controls.</p>
+
+<div class="cards">
+  <div class="card" data-choice="blocked" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">Blocked state</div>
+        <div class="mockup-body">
+          <div style="display:grid; gap:10px;">
+            <div class="placeholder" style="height:42px;">Status: Can't continue yet</div>
+            <div class="placeholder" style="height:64px;">FFmpeg not found on PATH</div>
+            <div class="placeholder" style="height:72px;">Why this matters + exact fix steps</div>
+            <div style="display:flex; gap:10px;">
+              <button class="mock-button">Open install guide</button>
+              <button class="mock-button">Re-check</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Blocked</h3>
+      <p>Primary action is disabled until a required dependency or setting is fixed. The UI explains the cause and points to the exact recovery action.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="ready" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">Ready state</div>
+        <div class="mockup-body">
+          <div style="display:grid; gap:10px;">
+            <div class="placeholder" style="height:42px;">Status: Ready to continue</div>
+            <div class="placeholder" style="height:64px;">Checks passed for this step</div>
+            <div class="placeholder" style="height:72px;">Short summary of what will happen next</div>
+            <div style="display:flex; gap:10px;">
+              <button class="mock-button">Run step action</button>
+              <button class="mock-button">Review advanced options</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Ready</h3>
+      <p>The user sees a clear green-light state, what the next button will do, and optional advanced controls tucked behind a disclosure.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="complete" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">Completed state</div>
+        <div class="mockup-body">
+          <div style="display:grid; gap:10px;">
+            <div class="placeholder" style="height:42px;">Status: Complete</div>
+            <div class="placeholder" style="height:64px;">What succeeded + saved values</div>
+            <div class="placeholder" style="height:72px;">Recommended next step highlighted</div>
+            <div style="display:flex; gap:10px;">
+              <button class="mock-button">Continue</button>
+              <button class="mock-button">Edit this step</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Completed</h3>
+      <p>The step is visibly done, but still editable. The flow nudges forward while preserving user confidence and recoverability.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Interaction rules</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Rules we add</h4>
+      <ul>
+        <li>Diagnostics do not auto-run on page load; the user explicitly starts the first check</li>
+        <li>Each step gets plain-language status: blocked, ready, running, complete</li>
+        <li>Raw JSON moves behind a details toggle; the default view uses human-readable summaries</li>
+        <li>Advanced config fields stay collapsed until prerequisite checks pass</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>Rules we avoid</h4>
+      <ul>
+        <li>No silent failure states buried in a log panel</li>
+        <li>No giant status dump before the user understands what they are checking</li>
+        <li>No forcing a full-page reload to refresh diagnostics</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="states-approve" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Approve state model</h3>
+      <p>The guardrails and step-state behavior feel right.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="states-adjust" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Adjust state model</h3>
+      <p>The layout is fine, but the gating, messaging, or level of strictness should change.</p>
+    </div>
+  </div>
+</div>

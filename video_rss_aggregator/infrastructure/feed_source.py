@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -64,13 +64,13 @@ def _parse_datetime_value(value: Any) -> datetime | None:
             return None
 
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _parse_datetime_tuple(value: Any) -> datetime | None:
     try:
-        return datetime(*value[:6], tzinfo=timezone.utc)
+        return datetime(*value[:6], tzinfo=UTC)
     except (TypeError, ValueError, IndexError, OverflowError):
         return None
 

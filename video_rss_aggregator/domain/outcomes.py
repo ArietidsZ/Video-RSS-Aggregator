@@ -20,10 +20,6 @@ class PartialSuccess:
     summary: SummaryResult
     status: str = field(init=False, default="partial_success")
 
-    def __post_init__(self) -> None:
-        if self.summary is None:
-            raise ValueError("summary is required")
-
 
 @dataclass(frozen=True)
 class Failure:

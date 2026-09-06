@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, Sequence
+from datetime import datetime
+from typing import Protocol
 
 from video_rss_aggregator.domain.models import PreparedMedia, SummaryResult
 from video_rss_aggregator.domain.outcomes import ProcessOutcome

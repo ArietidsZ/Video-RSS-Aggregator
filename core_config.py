@@ -51,6 +51,7 @@ class Config:
     max_transcript_chars: int = 16000
     transcript_retention_per_video: int = 3
     summary_retention_per_video: int = 5
+    storage_cleanup_hours: float = 168.0
     rss_title: str = "Video RSS Aggregator"
     rss_link: str = "http://127.0.0.1:8080/rss"
     rss_description: str = "Video summaries"
@@ -139,6 +140,9 @@ class Config:
             summary_retention_per_video=max(
                 1,
                 int(os.environ.get("VRA_SUMMARY_RETENTION_PER_VIDEO", "5")),
+            ),
+            storage_cleanup_hours=float(
+                os.environ.get("VRA_STORAGE_CLEANUP_HOURS", "168.0")
             ),
             rss_title=os.environ.get("VRA_RSS_TITLE", "Video RSS Aggregator"),
             rss_link=os.environ.get("VRA_RSS_LINK", "http://127.0.0.1:8080/rss"),

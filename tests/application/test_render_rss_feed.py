@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import get_type_hints
 
 import pytest
@@ -15,7 +15,7 @@ class FakePublicationRepository:
             PublicationRecord(
                 title="Video",
                 source_url="https://example.com/watch?v=1",
-                published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                published_at=datetime(2024, 1, 1, tzinfo=UTC),
                 summary="A compact summary",
                 key_points=("Point one", "Point two"),
                 visual_highlights=("Blue slide",),

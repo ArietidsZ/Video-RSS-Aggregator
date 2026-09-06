@@ -4,11 +4,11 @@ from dataclasses import dataclass
 from typing import cast
 
 from video_rss_aggregator.application.ports import (
-    FetchedFeed,
-    FetchedFeedEntry,
     FeedRepository,
     FeedSource,
     FeedVideoRepository,
+    FetchedFeed,
+    FetchedFeedEntry,
     SourceProcessor,
 )
 from video_rss_aggregator.domain.outcomes import Failure

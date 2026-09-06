@@ -1,9 +1,9 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
-from video_rss_aggregator.domain.models import SummaryResult
-from video_rss_aggregator.domain.models import PreparedMedia
+from video_rss_aggregator.application.ports import FetchedFeed, FetchedFeedEntry
+from video_rss_aggregator.domain.models import PreparedMedia, SummaryResult
 from video_rss_aggregator.domain.publication import PublicationRecord
 from video_rss_aggregator.infrastructure.sqlite_repositories import (
     SQLiteFeedRepository,
@@ -12,7 +12,6 @@ from video_rss_aggregator.infrastructure.sqlite_repositories import (
     SQLiteSummaryRepository,
     SQLiteVideoRepository,
 )
-from video_rss_aggregator.application.ports import FetchedFeed, FetchedFeedEntry
 from video_rss_aggregator.storage import Database
 
 
@@ -43,7 +42,7 @@ async def test_sqlite_summary_repository_saves_domain_summary_result(tmp_path) -
         guid=None,
         title="Video title",
         source_url="https://example.com/watch?v=1",
-        published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        published_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
 
     repository = SQLiteSummaryRepository(db)
@@ -58,7 +57,7 @@ async def test_sqlite_summary_repository_saves_domain_summary_result(tmp_path) -
         PublicationRecord(
             title="Video title",
             source_url="https://example.com/watch?v=1",
-            published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            published_at=datetime(2024, 1, 1, tzinfo=UTC),
             summary="A compact summary",
             key_points=("Point one", "Point two"),
             visual_highlights=("Blue slide",),
@@ -143,7 +142,7 @@ async def test_sqlite_feed_adapters_persist_feed_and_video_metadata(tmp_path) ->
             source_url="https://example.com/watch?v=from-feed",
             title="Feed item",
             guid="guid-1",
-            published_at=datetime(2024, 1, 2, 3, 4, tzinfo=timezone.utc),
+            published_at=datetime(2024, 1, 2, 3, 4, tzinfo=UTC),
         ),
     )
 

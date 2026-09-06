@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 from video_rss_aggregator.application.ports import (
     MediaPreparationService,
-    SummaryRepository,
     Summarizer,
+    SummaryRepository,
     VideoRepository,
 )
 from video_rss_aggregator.domain.outcomes import (

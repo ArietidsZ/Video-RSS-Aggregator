@@ -1,0 +1,122 @@
+<h2>Section 3: What each step contains</h2>
+<p class="subtitle">This section defines the content model for the four-step setup flow using the existing backend surfaces.</p>
+
+<div class="cards">
+  <div class="card" data-choice="step-install" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">Step 1 · Install prerequisites</div>
+        <div class="mockup-body">
+          <div style="display:grid; gap:8px;">
+            <div class="placeholder" style="height:36px;">Dependency checklist from diagnostics</div>
+            <div class="placeholder" style="height:74px;">Per-tool status cards: Python, FFmpeg, FFprobe, yt-dlp, Ollama</div>
+            <div class="placeholder" style="height:58px;">Fix instructions and re-check button</div>
+            <div class="placeholder" style="height:34px;">Continue only when required checks pass</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>1. Install prerequisites</h3>
+      <p>Uses `GET /setup/diagnostics` as the main source of truth. Focus is on dependency readiness, not raw output logs.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="step-config" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">Step 2 · Build configuration</div>
+        <div class="mockup-body">
+          <div style="display:grid; gap:8px;">
+            <div class="placeholder" style="height:36px;">Mode switch: Basic / Advanced</div>
+            <div class="placeholder" style="height:76px;">Basic fields: bind, storage, Ollama URL, model priority</div>
+            <div class="placeholder" style="height:52px;">Advanced tuning collapsed by default</div>
+            <div class="placeholder" style="height:58px;">Generated .env preview + copy action + quick commands</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>2. Build configuration</h3>
+      <p>Starts from `GET /setup/config`, but shows a beginner-safe subset first. The full env block and quick commands stay visible as outputs, not as the primary editing surface.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="step-runtime" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">Step 3 · Verify runtime</div>
+        <div class="mockup-body">
+          <div style="display:grid; gap:8px;">
+            <div class="placeholder" style="height:36px;">Connection summary: Ollama reachable / not reachable</div>
+            <div class="placeholder" style="height:68px;">Model list and missing-model warnings</div>
+            <div class="placeholder" style="height:58px;">Bootstrap action with progress / completion message</div>
+            <div class="placeholder" style="height:34px;">Show runtime details only on demand</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>3. Verify runtime</h3>
+      <p>Uses `GET /runtime` and `POST /setup/bootstrap`. It explains whether the system can actually run, instead of just dumping a large JSON payload.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="step-process" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">Step 4 · First processing run</div>
+        <div class="mockup-body">
+          <div style="display:grid; gap:8px;">
+            <div class="placeholder" style="height:36px;">Sample source prefilled + title override</div>
+            <div class="placeholder" style="height:68px;">Expectation setting: this may take a while</div>
+            <div class="placeholder" style="height:74px;">Human-readable result summary: title, frames, transcript, model used</div>
+            <div class="placeholder" style="height:34px;">Expandable raw response details</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>4. First processing run</h3>
+      <p>Uses `POST /process` to prove the full path works. Success is framed as confidence-building evidence, not just a blob of output.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Recommended defaults</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Beginner-first defaults</h4>
+      <ul>
+        <li>Basic mode hides budget ratios, scene thresholds, and retention knobs at first</li>
+        <li>Quick commands from config are surfaced as copyable helpers</li>
+        <li>Each step shows one success criterion before allowing the next step</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>Not in the first view</h4>
+      <ul>
+        <li>No 20-field wall before the user knows what matters</li>
+        <li>No giant raw JSON panes as the default reading experience</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="content-approve" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Approve step content</h3>
+      <p>The breakdown of the four steps matches the experience you want.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="content-adjust" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Adjust step content</h3>
+      <p>One or more steps need different emphasis or fields before we finalize the design.</p>
+    </div>
+  </div>
+</div>

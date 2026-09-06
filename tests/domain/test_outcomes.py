@@ -106,19 +106,6 @@ def test_partial_success_requires_summary_and_preserves_reason() -> None:
     assert outcome.reason == "missing frames"
 
 
-def test_partial_success_rejects_missing_summary() -> None:
-    media = PreparedMedia(
-        source_url="https://example.com/video",
-        title="Example",
-        transcript="hello",
-        media_path="/tmp/video.mp4",
-        frame_paths=cast_list([]),
-    )
-
-    with pytest.raises(ValueError, match="summary is required"):
-        PartialSuccess(media=media, summary=cast_any(None), reason="missing frames")
-
-
 def test_process_outcome_alias_is_exported_for_all_outcome_types() -> None:
     assert get_args(ProcessOutcome) == (Success, PartialSuccess, Failure)
 

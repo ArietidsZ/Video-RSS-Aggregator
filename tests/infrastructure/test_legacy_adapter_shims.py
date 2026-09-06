@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -70,7 +70,7 @@ async def test_legacy_database_persists_legacy_summary_through_shim(tmp_path) ->
         guid=None,
         title="Legacy title",
         source_url="https://example.com/watch?v=legacy",
-        published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        published_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
 
     await db.insert_summary(video_id, build_legacy_summary())
@@ -82,7 +82,7 @@ async def test_legacy_database_persists_legacy_summary_through_shim(tmp_path) ->
         SummaryRecord(
             title="Legacy title",
             source_url="https://example.com/watch?v=legacy",
-            published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            published_at=datetime(2024, 1, 1, tzinfo=UTC),
             summary="Legacy summary",
             key_points=("Point one", "Point two"),
             visual_highlights=("Blue slide",),
@@ -101,7 +101,7 @@ def test_legacy_rss_render_feed_accepts_summary_record_shim() -> None:
             SummaryRecord(
                 title="Legacy title",
                 source_url="https://example.com/watch?v=legacy",
-                published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                published_at=datetime(2024, 1, 1, tzinfo=UTC),
                 summary="Legacy summary",
                 key_points=("Point one",),
                 visual_highlights=("Blue slide",),

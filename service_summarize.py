@@ -124,16 +124,14 @@ def _as_string_list(value: Any, limit: int) -> list[str]:
 
 def _looks_like_oom(message: str) -> bool:
     lower = message.lower()
-    return "out of memory" in lower or "cuda" in lower and "memory" in lower
+    return "out of memory" in lower or ("cuda" in lower and "memory" in lower)
 
 
 def _is_meaningful_summary(summary: str, key_points: list[str]) -> bool:
     text = summary.strip()
-    if len(text) >= 48 and text not in {"...", "…"}:
-        return True
-    if len(key_points) >= 2 and any(len(item) >= 24 for item in key_points):
-        return True
-    return False
+    return (len(text) >= 48 and text not in {"...", "…"}) or (
+        len(key_points) >= 2 and any(len(item) >= 24 for item in key_points)
+    )
 
 
 def _fallback_key_points(transcript: str, summary: str, limit: int = 6) -> list[str]:
@@ -417,6 +415,97 @@ class SummarizationEngine:
             "model_priority": self._budget_filtered_models(),
         }
 
+    async def _try_summarize_with_model(
+        self,
+        *,
+        model: str,
+        source_url: str,
+        title: str | None,
+        transcript_text: str,
+        image_payload: list[str],
+    ) -> SummaryResult:
+        profile_images, profile_ctx = self._profile_for_model(
+            model,
+            image_payload,
+            transcript_chars=len(transcript_text),
+        )
+        prompt = self._build_user_prompt(
+            source_url=source_url,
+            title=title,
+            transcript=transcript_text,
+            image_count=len(profile_images),
+        )
+        chat = await self._ollama.chat_json(
+            model=model,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            schema=_SUMMARY_SCHEMA,
+            images=profile_images,
+            options={
+                "temperature": 0.2,
+                "top_p": 0.9,
+                "num_ctx": profile_ctx,
+                "num_predict": self._config.max_output_tokens,
+            },
+            keep_alive=0,
+        )
+
+        payload = _extract_json_payload(chat.text)
+        summary = _synthesize_summary(
+            payload,
+            transcript_text,
+            key_points=[],
+            visual_highlights=[],
+        )
+        if len(summary) > 900:
+            summary = summary[:897].rstrip() + "..."
+        key_points = _as_string_list(payload.get("key_points"), 8)
+        visual_highlights = _as_string_list(payload.get("visual_highlights"), 5)
+
+        if not summary:
+            summary = _synthesize_summary(
+                payload,
+                transcript_text,
+                key_points=key_points,
+                visual_highlights=visual_highlights,
+            )
+
+        if len(key_points) < 4:
+            fallback_points = _fallback_key_points(
+                transcript_text, summary, limit=6
+            )
+            for item in fallback_points:
+                if item not in key_points:
+                    key_points.append(item)
+                if len(key_points) >= 6:
+                    break
+        if len(key_points) < 3:
+            summary_points = _fallback_key_points_from_summary(summary, limit=4)
+            for item in summary_points:
+                if item not in key_points:
+                    key_points.append(item)
+                if len(key_points) >= 4:
+                    break
+
+        if not summary:
+            raise RuntimeError("Model response did not include a summary")
+        if not _is_meaningful_summary(summary, key_points):
+            raise RuntimeError("Model response was too low-information")
+
+        current_vram = await self._ollama.total_vram_bytes()
+        return SummaryResult(
+            summary=summary,
+            key_points=key_points,
+            visual_highlights=visual_highlights,
+            model_used=model,
+            vram_mb=round(current_vram / _MB, 2),
+            transcript_chars=len(transcript_text),
+            frame_count=len(profile_images),
+            error=None,
+        )
+
     async def summarize(
         self,
         *,
@@ -432,112 +521,64 @@ class SummarizationEngine:
         image_payload = encode_images_to_base64(frame_paths, self._config.max_frames)
         candidates = self._budget_filtered_models()
 
-        errors: list[str] = []
-        selected_model = ""
-        try:
-            selection = await self._select_model_for_job(
-                candidates,
-                transcript_chars=len(transcript_text),
-                frame_count=len(image_payload),
-            )
-            selected_model = selection.model
-            log.info("Model selected: %s (%s)", selected_model, selection.reason)
-
-            await self._ensure_model(selected_model)
-            profile_images, profile_ctx = self._profile_for_model(
-                selected_model,
-                image_payload,
-                transcript_chars=len(transcript_text),
-            )
-            prompt = self._build_user_prompt(
-                source_url=source_url,
-                title=title,
-                transcript=transcript_text,
-                image_count=len(profile_images),
-            )
-            chat = await self._ollama.chat_json(
-                model=selected_model,
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                schema=_SUMMARY_SCHEMA,
-                images=profile_images,
-                options={
-                    "temperature": 0.2,
-                    "top_p": 0.9,
-                    "num_ctx": profile_ctx,
-                    "num_predict": self._config.max_output_tokens,
-                },
-                keep_alive=0,
-            )
-
-            payload = _extract_json_payload(chat.text)
-            summary = _synthesize_summary(
-                payload,
-                transcript_text,
+        if not candidates:
+            return SummaryResult(
+                summary=transcript_text[:400].strip() or "No candidates available",
                 key_points=[],
                 visual_highlights=[],
-            )
-            if len(summary) > 900:
-                summary = summary[:897].rstrip() + "..."
-            key_points = _as_string_list(payload.get("key_points"), 8)
-            visual_highlights = _as_string_list(payload.get("visual_highlights"), 5)
-
-            if not summary:
-                summary = _synthesize_summary(
-                    payload,
-                    transcript_text,
-                    key_points=key_points,
-                    visual_highlights=visual_highlights,
-                )
-
-            if len(key_points) < 4:
-                fallback_points = _fallback_key_points(
-                    transcript_text, summary, limit=6
-                )
-                for item in fallback_points:
-                    if item not in key_points:
-                        key_points.append(item)
-                    if len(key_points) >= 6:
-                        break
-            if len(key_points) < 3:
-                summary_points = _fallback_key_points_from_summary(summary, limit=4)
-                for item in summary_points:
-                    if item not in key_points:
-                        key_points.append(item)
-                    if len(key_points) >= 4:
-                        break
-
-            if not summary:
-                raise RuntimeError("Model response did not include a summary")
-            if not _is_meaningful_summary(summary, key_points):
-                raise RuntimeError("Model response was too low-information")
-
-            current_vram = await self._ollama.total_vram_bytes()
-            budget_bytes = self._config.vram_budget_mb * _MB
-            if current_vram > budget_bytes:
-                errors.append(
-                    f"{selected_model}: exceeded VRAM budget "
-                    f"({current_vram // _MB} MB > {self._config.vram_budget_mb} MB)"
-                )
-
-            return SummaryResult(
-                summary=summary,
-                key_points=key_points,
-                visual_highlights=visual_highlights,
-                model_used=selected_model,
-                vram_mb=round(current_vram / _MB, 2),
+                model_used="",
+                vram_mb=0.0,
                 transcript_chars=len(transcript_text),
-                frame_count=len(profile_images),
-                error=" | ".join(errors) if errors else None,
+                frame_count=len(image_payload),
+                error="No eligible models after budget filtering",
             )
-        except Exception as exc:
-            label = selected_model or "model-selection"
-            errors.append(f"{label}: {exc}")
-            log.warning("Model attempt failed for %s: %s", label, exc)
-            if selected_model and _looks_like_oom(str(exc)):
-                await self._ollama.unload_model(selected_model)
+
+        errors: list[str] = []
+        tried_models: list[str] = []
+
+        for model in candidates:
+            tried_models.append(model)
+            try:
+                selection = await self._select_model_for_job(
+                    [model],
+                    transcript_chars=len(transcript_text),
+                    frame_count=len(image_payload),
+                )
+                if selection.model != model:
+                    errors.append(
+                        f"{model}: budget check failed ({selection.reason})"
+                    )
+                    continue
+
+                await self._ensure_model(model)
+                result = await self._try_summarize_with_model(
+                    model=model,
+                    source_url=source_url,
+                    title=title,
+                    transcript_text=transcript_text,
+                    image_payload=image_payload,
+                )
+
+                budget_bytes = self._config.vram_budget_mb * _MB
+                if result.vram_mb * _MB > budget_bytes:
+                    result = SummaryResult(
+                        summary=result.summary,
+                        key_points=result.key_points,
+                        visual_highlights=result.visual_highlights,
+                        model_used=result.model_used,
+                        vram_mb=result.vram_mb,
+                        transcript_chars=result.transcript_chars,
+                        frame_count=result.frame_count,
+                        error=f"{model}: exceeded VRAM budget "
+                        f"({int(result.vram_mb)} MB > {self._config.vram_budget_mb} MB)",
+                    )
+                return result
+
+            except Exception as exc:
+                errors.append(f"{model}: {exc}")
+                log.warning("Model attempt failed for %s: %s", model, exc)
+                if _looks_like_oom(str(exc)):
+                    await self._ollama.unload_model(model)
 
         fallback_summary = "Unable to generate a model summary for this source."
         if transcript_text:
@@ -547,11 +588,11 @@ class SummarizationEngine:
             summary=fallback_summary,
             key_points=[],
             visual_highlights=[],
-            model_used=selected_model,
+            model_used=" | ".join(tried_models) if tried_models else "",
             vram_mb=0.0,
             transcript_chars=len(transcript_text),
             frame_count=len(image_payload),
-            error=" | ".join(errors) if errors else "No eligible models",
+            error=" | ".join(errors) if errors else "All models failed",
         )
 
     @staticmethod

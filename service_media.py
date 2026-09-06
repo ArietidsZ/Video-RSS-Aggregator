@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from dataclasses import dataclass, field
 import logging
 import os
 import re
 import shutil
 import sys
+import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import httpx
-
 
 log = logging.getLogger(__name__)
 
@@ -110,6 +110,38 @@ async def ensure_storage_dirs(storage_dir: str) -> None:
     (base / "raw").mkdir(parents=True, exist_ok=True)
     (base / "frames").mkdir(parents=True, exist_ok=True)
     (base / "subtitles").mkdir(parents=True, exist_ok=True)
+
+
+async def cleanup_storage(
+    storage_dir: str,
+    max_age_hours: float = 168.0,
+    min_retain: int = 50,
+) -> int:
+    base = Path(storage_dir)
+    now = time.time()
+    max_age_seconds = max_age_hours * 3600.0
+    removed = 0
+
+    for sub in ("raw", "frames", "subtitles"):
+        sub_dir = base / sub
+        if not sub_dir.exists():
+            continue
+
+        files = sorted(sub_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+        for idx, path in enumerate(files):
+            if not path.is_file():
+                continue
+            if idx < min_retain:
+                continue
+            age = now - path.stat().st_mtime
+            if age > max_age_seconds:
+                try:
+                    path.unlink()
+                    removed += 1
+                except OSError:
+                    continue
+
+    return removed
 
 
 async def download_to_file(client: httpx.AsyncClient, url: str, dest: Path) -> None:
@@ -360,19 +392,22 @@ def subtitle_to_text(path: Path, max_chars: int) -> str:
 
 
 async def _probe_duration_seconds(path: Path) -> float | None:
-    proc = await asyncio.create_subprocess_exec(
-        _FFPROBE_BIN,
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=nokey=1:noprint_wrappers=1",
-        str(path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    stdout, _ = await proc.communicate()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            _FFPROBE_BIN,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=nokey=1:noprint_wrappers=1",
+            str(path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+    except (TimeoutError, Exception):
+        return None
     if proc.returncode != 0:
         return None
     raw = stdout.decode(errors="replace").strip()
@@ -384,21 +419,24 @@ async def _probe_duration_seconds(path: Path) -> float | None:
 
 
 async def _has_video_stream(path: Path) -> bool:
-    proc = await asyncio.create_subprocess_exec(
-        _FFPROBE_BIN,
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
-        "-show_entries",
-        "stream=codec_type",
-        "-of",
-        "csv=p=0",
-        str(path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    stdout, _ = await proc.communicate()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            _FFPROBE_BIN,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
+            str(path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+    except (TimeoutError, Exception):
+        return False
     if proc.returncode != 0:
         return False
     return "video" in stdout.decode(errors="replace").lower()
@@ -461,19 +499,40 @@ def _digest_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _merge_unique_frames(
+async def _digest_file_async(path: Path) -> str:
+    return await asyncio.to_thread(_digest_file, path)
+
+
+async def _merge_unique_frames(
     primary: list[Path], secondary: list[Path], limit: int
 ) -> list[Path]:
     out: list[Path] = []
     seen_digest: set[str] = set()
 
-    for path in [*primary, *secondary]:
+    for path in primary:
         if len(out) >= limit:
-            break
+            return out
         if not path.exists():
             continue
         try:
-            file_digest = _digest_file(path)
+            file_digest = await _digest_file_async(path)
+        except OSError:
+            continue
+        if file_digest in seen_digest:
+            continue
+        seen_digest.add(file_digest)
+        out.append(path)
+
+    if len(out) >= limit:
+        return out
+
+    for path in secondary:
+        if len(out) >= limit:
+            return out
+        if not path.exists():
+            continue
+        try:
+            file_digest = await _digest_file_async(path)
         except OSError:
             continue
         if file_digest in seen_digest:
@@ -592,11 +651,12 @@ async def extract_frames_ffmpeg(
     if use_scene and len(scene_candidates) >= max_frames:
         return _pick_evenly(scene_candidates, max_frames)
 
+    uniform_max = max_frames if not use_scene else max(max_frames - len(scene_candidates), 1)
     uniform_frames = await _extract_uniform_frames_ffmpeg(
         input_path=input_path,
         output_dir=output_dir,
         file_id=file_id,
-        max_frames=max_frames,
+        max_frames=uniform_max,
         duration=duration,
     )
     if not use_scene:
@@ -604,9 +664,9 @@ async def extract_frames_ffmpeg(
 
     scene_focus = _pick_evenly(scene_candidates, max_frames)
     uniform_focus = _pick_evenly(uniform_frames, max_frames)
-    merged = _merge_unique_frames(scene_focus, uniform_focus, max_frames)
+    merged = await _merge_unique_frames(scene_focus, uniform_focus, max_frames)
     if len(merged) < max_frames:
-        merged = _merge_unique_frames(merged, scene_candidates, max_frames)
+        merged = await _merge_unique_frames(merged, scene_candidates, max_frames)
     return merged[:max_frames]
 
 

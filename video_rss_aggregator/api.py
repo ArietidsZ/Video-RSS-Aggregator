@@ -3,11 +3,11 @@ from __future__ import annotations
 import platform
 import shutil
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.util import find_spec
 from pathlib import Path
-from typing import AsyncIterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
@@ -85,7 +85,7 @@ def create_app(
 
     @app.get("/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+        return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
 
     @app.get("/", response_class=HTMLResponse)
     async def setup_home(request: Request) -> str:

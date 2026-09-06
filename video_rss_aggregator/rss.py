@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from video_rss_aggregator.domain.publication import PublicationRecord
@@ -50,5 +50,5 @@ def render_feed(
 
 def _rfc2822(dt: datetime) -> str:
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.strftime("%a, %d %b %Y %H:%M:%S %z")

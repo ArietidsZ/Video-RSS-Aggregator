@@ -1,0 +1,84 @@
+<h2>Section 1: Guided Workbench layout</h2>
+<p class="subtitle">This section defines the overall screen structure and flow for first-time Windows users. The goal is to prevent mistakes by making the next safe action obvious.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Desktop</div>
+    <div class="mockup-body">
+      <div style="display:flex; gap:12px; min-height:360px;">
+        <div style="width:30%; display:grid; gap:10px;">
+          <div class="placeholder" style="height:44px;">Readiness score + current blocker</div>
+          <div class="placeholder" style="height:54px;">1. Install prerequisites ✓ / !</div>
+          <div class="placeholder" style="height:54px;">2. Build configuration current</div>
+          <div class="placeholder" style="height:54px;">3. Verify runtime connection</div>
+          <div class="placeholder" style="height:54px;">4. Run first sample process</div>
+          <div class="placeholder" style="height:64px;">Need help? Links + common fixes</div>
+        </div>
+        <div style="flex:1; display:grid; gap:12px;">
+          <div class="placeholder" style="height:56px;">Step title + plain-language explanation + why it matters</div>
+          <div class="placeholder" style="height:66px;">Blocking checks: Python, Ollama, FFmpeg, editable install</div>
+          <div class="placeholder" style="height:118px;">Primary task area for this step only</div>
+          <div style="display:flex; gap:12px;">
+            <div class="placeholder" style="flex:1; height:90px;">Live result panel</div>
+            <div class="placeholder" style="flex:1; height:90px;">Fix suggestions / next action</div>
+          </div>
+          <div class="placeholder" style="height:42px;">Advanced details collapsed by default</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Mobile</div>
+    <div class="mockup-body">
+      <div style="display:grid; gap:10px; min-height:360px;">
+        <div class="placeholder" style="height:42px;">Current step + progress</div>
+        <div class="placeholder" style="height:58px;">Current blocker summary</div>
+        <div class="placeholder" style="height:84px;">Primary step action</div>
+        <div class="placeholder" style="height:92px;">Result / validation</div>
+        <div class="placeholder" style="height:42px;">Open full checklist</div>
+        <div class="placeholder" style="height:42px;">Open advanced settings</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>What changes from the current page</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>New behavior</h4>
+      <ul>
+        <li>One primary step is in focus at a time</li>
+        <li>Blocking issues surface before deep configuration</li>
+        <li>Advanced controls stay available but hidden by default</li>
+        <li>Every step ends with a clear next action</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>Removed from default view</h4>
+      <ul>
+        <li>No giant all-fields-first form</li>
+        <li>No raw JSON-first experience on load</li>
+        <li>No equal visual weight for beginner and expert actions</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="layout-approve" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Looks right so far</h3>
+      <p>The overall structure and guided flow match the direction you want.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="layout-adjust" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Needs adjustment</h3>
+      <p>The direction is close, but the layout or step emphasis should change before we continue.</p>
+    </div>
+  </div>
+</div>

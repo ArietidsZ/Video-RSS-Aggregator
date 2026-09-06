@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from service_summarize import SummaryResult as LegacySummaryResult
 from video_rss_aggregator.domain.models import SummaryResult
-from video_rss_aggregator.storage import Database as PackageDatabase, SummaryRecord
+from video_rss_aggregator.storage import Database as PackageDatabase
+from video_rss_aggregator.storage import SummaryRecord
 
 
 class Database(PackageDatabase):

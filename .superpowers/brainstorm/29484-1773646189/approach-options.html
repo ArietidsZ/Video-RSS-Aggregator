@@ -1,0 +1,113 @@
+<h2>Which setup direction fits best?</h2>
+<p class="subtitle">Target: first-time Windows users. Primary goal: prevent setup mistakes across install, config, runtime checks, and first processing.</p>
+
+<div class="cards">
+  <div class="card" data-choice="wizard" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Guardrailed Wizard</div>
+        <div class="mockup-body">
+          <div style="display:grid; gap:10px;">
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <span class="label">Step 1</span>
+              <span class="label">Step 2</span>
+              <span class="label">Step 3</span>
+              <span class="label">Step 4</span>
+            </div>
+            <div class="placeholder" style="height:38px;">Current step guidance + why it matters</div>
+            <div class="placeholder" style="height:110px;">Focused form / diagnostics for one task only</div>
+            <div style="display:flex; gap:10px;">
+              <button class="mock-button">Back</button>
+              <button class="mock-button">Continue after validation</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Guardrailed wizard</h3>
+      <p>Strongest at reducing mistakes. Each step has prerequisites, validation, and a clear next action.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul><li>Least overwhelming</li><li>Best error prevention</li><li>Clear progress</li></ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul><li>Slower for experts</li><li>More navigation between steps</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="dashboard" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Mission Control Dashboard</div>
+        <div class="mockup-body">
+          <div style="display:grid; gap:10px;">
+            <div style="display:flex; gap:10px;">
+              <div class="placeholder" style="flex:1; height:78px;">Install</div>
+              <div class="placeholder" style="flex:1; height:78px;">Config</div>
+            </div>
+            <div style="display:flex; gap:10px;">
+              <div class="placeholder" style="flex:1; height:78px;">Runtime</div>
+              <div class="placeholder" style="flex:1; height:78px;">First Run</div>
+            </div>
+            <div class="placeholder" style="height:42px;">Persistent status rail with warnings and shortcuts</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Mission control dashboard</h3>
+      <p>Keeps everything visible on one screen and adds stronger status messaging instead of changing the overall shape.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul><li>Fast for repeat use</li><li>Low navigation cost</li><li>Feels powerful</li></ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul><li>Still cognitively dense</li><li>Mistakes remain easier to make</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Guided Workbench</div>
+        <div class="mockup-body">
+          <div style="display:flex; gap:10px;">
+            <div class="placeholder" style="width:34%; height:170px;">Step list + completion state</div>
+            <div style="flex:1; display:grid; gap:10px;">
+              <div class="placeholder" style="height:38px;">Current step explainer</div>
+              <div class="placeholder" style="height:84px;">Primary action area</div>
+              <div class="placeholder" style="height:38px;">Advanced details collapsible</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Guided workbench</h3>
+      <p>Combines a left-side checklist with a focused main panel, keeping guidance visible while allowing deeper controls when needed.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul><li>Balanced for novice and expert use</li><li>Progress stays visible</li><li>Advanced settings can hide by default</li></ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul><li>More complex to design well</li><li>Can drift back into clutter</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <p class="subtitle">Recommendation: <strong>Guided workbench</strong>. It best matches your goals because it can prevent mistakes with sequencing and validation, without making the setup studio feel like a slow four-page form.</p>
+</div>

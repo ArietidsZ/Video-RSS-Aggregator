@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -69,7 +69,7 @@ async def test_http_feed_source_fetches_and_maps_entries() -> None:
                 source_url="https://cdn.example.com/video.mp4",
                 title="First",
                 guid="first-guid",
-                published_at=datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+                published_at=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
             ),
         ),
     )
@@ -105,7 +105,7 @@ async def test_http_feed_source_falls_back_to_updated_timestamp() -> None:
                 source_url="https://example.com/watch?v=1",
                 title="First",
                 guid="first-guid",
-                published_at=datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+                published_at=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
             ),
         ),
     )

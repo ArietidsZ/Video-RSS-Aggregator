@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import uuid
+from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic
@@ -14,7 +14,7 @@ import httpx
 import uvicorn
 
 from core_config import Config
-from service_media import extract_frames_ffmpeg, prepare_source
+from service_media import _digest_file, extract_frames_ffmpeg, prepare_source
 from service_summarize import SummarizationEngine
 from video_rss_aggregator.bootstrap import AppRuntime, build_runtime
 from video_rss_aggregator.domain.outcomes import Failure
@@ -27,17 +27,6 @@ def _setup_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
-
-
-def _digest_file(path: Path) -> str:
-    digest = hashlib.sha1()
-    with path.open("rb") as handle:
-        while True:
-            chunk = handle.read(1 << 16)
-            if not chunk:
-                break
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _frame_metrics(paths: list[Path]) -> dict[str, float | int]:
@@ -146,10 +135,8 @@ def serve(bind: str | None) -> None:
         host_part, sep, port_part = bind.rpartition(":")
         if sep and host_part:
             host = host_part
-            try:
+            with suppress(ValueError):
                 port = int(port_part)
-            except ValueError:
-                pass
 
     async def _run() -> None:
         from adapter_api import create_app

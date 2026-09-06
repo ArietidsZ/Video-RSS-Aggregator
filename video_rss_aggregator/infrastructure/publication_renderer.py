@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from video_rss_aggregator.domain.publication import PublicationRecord
 from video_rss_aggregator.rss import render_feed
