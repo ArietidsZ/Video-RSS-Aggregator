@@ -16,6 +16,7 @@ import pytest
 try:
     from vra.config import AsrMode, Config
     from vra.contracts import JobKind
+    from vra.inference.engine import EngineClient
     from vra.runtime import AppRuntime, _run_job
     from vra.service.ingester import FeedIngester
     from vra.service.processor import Processor
@@ -150,22 +151,27 @@ async def _make_runtime(tmp_path, fetcher, acquirer, transcriber, extractor,
     await db.migrate()
     store = SqlVideoStore(db)
     queue = SqlJobQueue(db)
-    runtime = AppRuntime(
-        config=cfg,
-        store=store,
-        queue=queue,
-        ingester=FeedIngester(fetcher, store, queue, cfg),
-        processor=Processor(store, acquirer, transcriber, extractor, summarizer, cfg),
-        scheduler=FakeScheduler(),  # type: ignore[arg-type]
-        summarizer=summarizer,  # type: ignore[arg-type]
-    )
+    try:
+        runtime = AppRuntime(
+            config=cfg,
+            store=store,
+            queue=queue,
+            ingester=FeedIngester(fetcher, store, queue, cfg),
+            processor=Processor(store, acquirer, transcriber, extractor, summarizer, cfg),
+            scheduler=FakeScheduler(),  # type: ignore[arg-type]
+            summarizer=summarizer,  # type: ignore[arg-type]
+            engine=EngineClient("http://127.0.0.1:9/v1", None),  # unroutable; fakes serve all calls
+        )
+    except BaseException:
+        await queue.close()
+        raise
     return runtime
 
 
-async def _pump(runtime: AppRuntime) -> None:
+async def _pump(runtime: AppRuntime, kinds=(JobKind.INGEST, JobKind.PROCESS)) -> None:
     """Run queued jobs to completion exactly the way the workers would."""
     while True:
-        job = await runtime.queue.claim((JobKind.INGEST, JobKind.PROCESS))
+        job = await runtime.queue.claim(kinds)
         if job is None:
             return
         if job.kind is JobKind.INGEST:
@@ -193,7 +199,7 @@ async def test_end_to_end_ingest_process_idempotent(tmp_path):
     try:
         await runtime.queue.enqueue(
             JobKind.INGEST, {"url": "https://example.com/feed.xml"})
-        await _pump(runtime)
+        await _pump(runtime, (JobKind.INGEST,))
 
         feeds = await runtime.store.list_feeds()
         assert len(feeds) == 1 and feeds[0].title == "FakeFeed"
