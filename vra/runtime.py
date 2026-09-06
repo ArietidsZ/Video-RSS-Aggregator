@@ -174,9 +174,6 @@ class AppRuntime:
         self._state["started"] = False
         await self.scheduler.stop()
         await self.summarizer.close()
-        if self.summarizer._asr_client is not self.engine:
-            with contextlib.suppress(Exception):
-                await self.summarizer._asr_client.close()
         await self.queue.close()
 
     def stats(self) -> dict[str, Any]:

@@ -377,8 +377,10 @@ class VlmSummarizer:
         self._model: str | None = None
 
     async def close(self) -> None:
-        """Shut down the underlying engine client (runtime calls at exit)."""
+        """Shut down the engine and any dedicated ASR probe client."""
         await self._engine.close()
+        if self._asr_client is not None and self._asr_client is not self._engine:
+            await self._asr_client.close()
 
     async def resolve_model(self) -> str:
         """Verify config.model is served; cache the resolution.
