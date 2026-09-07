@@ -6,13 +6,25 @@ decode pass) → summary by a local Qwen 3.5 vision model → publish as RSS.
 One durable SQLite job queue drives everything.
 
 **No fallbacks, one efficient stack, one posture.** Exactly one inference
-path (OpenAI-compatible server: llama-server / vLLM / SGLang / oMLX /
-frontier APIs) and one ASR path (`/v1/audio/transcriptions` hosting
-Qwen3-ASR). One model choice, chosen by iso-footprint scaling: the
-**largest model at the most aggressive safe quantization** that fits the
-low-overhead envelope — **Qwen3.5-9B @ UD-IQ3_XXS (4.0 GB)**, not a 4B at
-conservative bits. KV cache quantized (q8_0/fp8), ASR at Q8_0 (WER is
-noise-sensitive; the VLM takes the 3-bit hit, transcription doesn't).
+path (an OpenAI-compatible server, engine-agnostic by contract) and one
+ASR path (`/v1/audio/transcriptions`). One model choice, chosen by
+iso-footprint scaling: the **largest model at the most aggressive
+verified quantization** that fits the ~4 GB VRAM / ~4 GB RAM envelope —
+target **Qwen3.5-9B @ ~2.5 bpw GSQ/RCO-refined weights + quantized KV
+(q8_0/q4_0-class) + Qwen3-ASR @ Q8**. Concrete artifacts, runtime, and
+config defaults are frozen in the model phase (see
+`docs/v2/RESEARCH.md` §S7) — the framework ships engine-agnostic today.
+
+## Status
+
+- **Framework: complete.** store/service (SQLite WAL + durable queue),
+  inference contracts, API/CLI/GUI, RSS builder — all merged; legacy v1
+  deleted; 211 tests green (incl. end-to-end integration).
+- **Model phase: pending.** ① GSQ+RCO self-quantization of Qwen3.5-9B
+  (2.5 bpw primary / 2.75 bpw alt, `-mtp` build), ② KV-dtype ablation
+  (bf16 vs q8_0/q4_0), ③ runtime bake-off (ExLlamaV3 vision check vs
+  GGUF runtime), ④ ASR 0.6B vs 1.7B on real videos. Outcomes land as
+  config defaults + one launch recipe — no code changes expected.
 
 ## Quick start
 
