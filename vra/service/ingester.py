@@ -17,7 +17,6 @@ the queue worker can retry with backoff.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import ipaddress
 import logging
 import socket
@@ -31,6 +30,7 @@ import httpx
 
 from vra.config import Config
 from vra.contracts import FeedFetcher, JobQueue, VideoStore
+from vra.identity import source_identity
 from vra.types import IngestResult, JobKind, VideoStatus
 
 log = logging.getLogger(__name__)
@@ -219,20 +219,9 @@ class HttpFeedFetcher:
 # canonical identity + FeedIngester
 # --------------------------------------------------------------------------
 
-def _normalize_url(url: str) -> str:
-    """scheme://host/path form with query/fragment dropped (host lowered)."""
-    parts = urlparse(url)
-    if parts.scheme and parts.netloc:
-        return f"{parts.scheme}://{parts.netloc.lower()}{parts.path}"
-    return parts.path or url
-
-
 def _canonical_id(guid: str | None, source_url: str) -> str:
-    """Absolute-http guid wins; otherwise sha1 of the normalized URL."""
-    if guid and guid.startswith("http"):
-        return guid
-    digest = hashlib.sha1(_normalize_url(source_url).encode("utf-8")).hexdigest()
-    return f"url:{digest[:16]}"
+    """GUID remains metadata; acquisition source determines new identity."""
+    return source_identity(source_url)
 
 
 class FeedIngester:

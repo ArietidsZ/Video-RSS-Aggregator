@@ -303,10 +303,10 @@ def test_process_requires_source_or_video_id() -> None:
     assert resp.status_code == 400
 
 
-def test_canonical_for_source_is_stable_sha1_prefix() -> None:
+def test_canonical_for_source_is_stable_versioned_source() -> None:
     assert canonical_for_source("https://x/y") == canonical_for_source("https://x/y")
     assert canonical_for_source("https://x/y") != canonical_for_source("https://x/z")
-    assert canonical_for_source("https://x/y").startswith("url:")
+    assert canonical_for_source("https://x/y").startswith("source:v2:")
 
 
 def test_jobs_list_and_filters() -> None:
