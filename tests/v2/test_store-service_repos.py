@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from vra.store import repos
 from vra.store.db import Database
 from vra.store.queue import SqlJobQueue
 from vra.store.repos import SqlVideoStore
@@ -85,7 +86,7 @@ async def test_get_list_delete_feed(
     a = await store.upsert_feed("https://a", "A", 15)
     b = await store.upsert_feed("https://b", "B", 15)
     feeds = await store.list_feeds()
-    assert [f.id for f in feeds] == [a.id, b.id]
+    assert sorted(f.id for f in feeds) == sorted([a.id, b.id])
     await store.delete_feed(a.id)
     assert await store.get_feed_by_url("https://a") is None
     assert [f.id for f in await store.list_feeds()] == [b.id]
@@ -357,3 +358,15 @@ async def test_counts(
     }
     assert counts["feeds"] == 1
     assert counts["summaries"] == 1
+
+
+async def test_feed_order_uses_timestamp_then_id(stack, monkeypatch):
+    _, store, _ = stack
+    ids = iter(["z", "a", "m"])
+    monkeypatch.setattr(repos.uuid, "uuid4", lambda: next(ids))
+    monkeypatch.setattr(repos, "_utc_now", lambda: datetime(2026, 1, 2, tzinfo=UTC))
+    await store.upsert_feed("https://z", "Z", 15)
+    await store.upsert_feed("https://a", "A", 15)
+    monkeypatch.setattr(repos, "_utc_now", lambda: datetime(2026, 1, 1, tzinfo=UTC))
+    await store.upsert_feed("https://m", "M", 15)
+    assert [feed.id for feed in await store.list_feeds()] == ["m", "a", "z"]

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import time
-from pathlib import Path, PosixPath
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -53,9 +54,8 @@ def test_winget_resolution_newest_package_wins(
     os.utime(old_bin, (past, past))
     os.utime(new_bin, (now, now))
 
-    # Emulate nt without pathlib refusing WindowsPath instantiation on posix.
-    monkeypatch.setattr(os, "name", "nt")
-    monkeypatch.setattr(binaries, "Path", PosixPath)
+    # Emulate only the module platform check; keep native pathlib and global os.
+    monkeypatch.setattr(binaries, "os", SimpleNamespace(name="nt", environ=os.environ))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.setattr(binaries.shutil, "which", lambda name: None)
 
@@ -67,7 +67,6 @@ def test_fallback_to_bare_name_when_not_found(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(binaries.shutil, "which", lambda name: None)
-    monkeypatch.setattr(os, "name", "nt")
-    monkeypatch.setattr(binaries, "Path", PosixPath)
+    monkeypatch.setattr(binaries, "os", SimpleNamespace(name="nt", environ=os.environ))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "missing"))
     assert binaries.resolve_binary("ffmpeg") == "ffmpeg"
