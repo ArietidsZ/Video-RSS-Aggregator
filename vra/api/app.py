@@ -370,6 +370,8 @@ def create_app(runtime: _RuntimeLike) -> FastAPI:
             video_id = body.video_id
         elif body.source_url:
             body.source_url = body.source_url.strip()
+            if not body.source_url:
+                raise HTTPException(status_code=400, detail="source_url must not be blank")
             await validate_source_url(body.source_url, config)
             canonical = canonical_for_source(body.source_url)
             record = await runtime.store.get_video_by_canonical(canonical)
