@@ -24,7 +24,7 @@ import socket
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import feedparser
 import httpx
@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 
 _FETCH_TIMEOUT_S = 30.0
 _ERROR_MAX_CHARS = 800
+_MAX_FEED_REDIRECTS = 5
 
 
 # --------------------------------------------------------------------------
@@ -158,6 +159,38 @@ class HttpFeedFetcher:
     ) -> tuple[list[dict[str, Any]], str | None, str | None, str | None, bool]:
         """Conditional GET + parse. Returns (entries, title, site_url, etag,
         not_modified); on HTTP 304 entries is empty and not_modified True."""
+        headers: dict[str, str] = {}
+        if etag:
+            headers["If-None-Match"] = etag
+        if last_modified:
+            headers["If-Modified-Since"] = last_modified
+        current_url = url
+        for hop in range(_MAX_FEED_REDIRECTS + 1):
+            await self._validate_url(current_url)
+            response = await self._client.get(
+                current_url, headers=headers, timeout=_FETCH_TIMEOUT_S,
+                follow_redirects=False,
+            )
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                break
+            location = response.headers.get("location")
+            if not location:
+                raise ValueError("feed redirect has no Location header")
+            if hop == _MAX_FEED_REDIRECTS:
+                raise ValueError("feed redirect limit exceeded")
+            current_url = urljoin(str(response.url), location)
+        if response.status_code == 304:
+            return [], None, None, None, True
+        response.raise_for_status()
+
+        parsed = await asyncio.to_thread(feedparser.parse, response.text)
+        entries = [_map_entry(entry) for entry in parsed.entries]
+        feed_title = parsed.feed.get("title") or None
+        site_url = parsed.feed.get("link") or None
+        new_etag = response.headers.get("ETag")
+        return entries, feed_title, site_url, new_etag, False
+
+    async def _validate_url(self, url: str) -> None:
         parts = urlparse(url)
         if parts.scheme not in ("http", "https"):
             raise ValueError(f"unsupported feed url scheme: {parts.scheme!r}")
@@ -170,6 +203,8 @@ class HttpFeedFetcher:
             except ValueError as exc:
                 log.warning("ssrf guard rejected feed %s: %s", url, exc)
                 raise
+            if not addresses:
+                raise ValueError(f"feed host {host!r} has no addresses")
             for addr in addresses:
                 ip = _as_ip(addr)
                 if ip is None or _is_forbidden(ip):
@@ -178,27 +213,6 @@ class HttpFeedFetcher:
                         f"resolves to private/reserved {addr!r}"
                     )
 
-        headers: dict[str, str] = {}
-        if etag:
-            headers["If-None-Match"] = etag
-        if last_modified:
-            headers["If-Modified-Since"] = last_modified
-        response = await self._client.get(
-            url,
-            headers=headers,
-            timeout=_FETCH_TIMEOUT_S,
-            follow_redirects=True,
-        )
-        if response.status_code == 304:
-            return [], None, None, None, True
-        response.raise_for_status()
-
-        parsed = await asyncio.to_thread(feedparser.parse, response.text)
-        entries = [_map_entry(entry) for entry in parsed.entries]
-        feed_title = parsed.feed.get("title") or None
-        site_url = parsed.feed.get("link") or None
-        new_etag = response.headers.get("ETag")
-        return entries, feed_title, site_url, new_etag, False
 
 
 # --------------------------------------------------------------------------

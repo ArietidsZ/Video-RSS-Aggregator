@@ -367,3 +367,48 @@ async def test_fetcher_allows_private_when_enabled() -> None:
         fetcher = HttpFeedFetcher(client, allow_private=True)
         entries, *_ = await fetcher.fetch("http://127.0.0.1:8080/feed.xml")
     assert len(entries) == 2
+
+
+@pytest.mark.parametrize('target', [
+    'http://127.0.0.1/private', 'http://10.0.0.1/private',
+    'http://169.254.169.254/latest', 'file:///etc/passwd',
+])
+async def test_redirect_destination_checked_before_request(monkeypatch, target):
+    seen = []
+    monkeypatch.setattr(ingester_module, '_resolve_addresses',
+                        lambda host: ['93.184.216.34'] if host == 'public.example' else [host])
+    def handle(request):
+        seen.append(str(request.url))
+        if len(seen) == 1:
+            return httpx.Response(302, headers={'Location': target})
+        return httpx.Response(200, text=_RSS)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(ValueError):
+            await HttpFeedFetcher(client).fetch('https://public.example/feed')
+    assert seen == ['https://public.example/feed']
+
+
+async def test_relative_redirect_and_conditional_response(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ingester_module, '_resolve_addresses', lambda host: ['93.184.216.34'])
+    def handle(request):
+        seen.append(str(request.url))
+        assert request.headers['if-none-match'] == 'saved'
+        if len(seen) == 1:
+            return httpx.Response(307, headers={'Location': '/new'})
+        return httpx.Response(304)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        result = await HttpFeedFetcher(client).fetch('https://public.example/feed', etag='saved')
+    assert seen == ['https://public.example/feed', 'https://public.example/new']
+    assert result[-1] is True
+
+
+async def test_redirect_loop_is_bounded():
+    seen = []
+    def handle(request):
+        seen.append(str(request.url))
+        return httpx.Response(302, headers={'Location': '/again'})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(ValueError, match='limit'):
+            await HttpFeedFetcher(client, allow_private=True).fetch('http://localhost/start')
+    assert len(seen) == 6
