@@ -42,6 +42,17 @@ vra status                                          # counts + jobs
 curl -s localhost:8080/rss?limit=20                 # consume the output
 ```
 
+## Queue deadlines
+
+New job deadlines accept datetimes or ISO-8601 strings and are stored in UTC
+with six-digit microsecond precision. Naive values are interpreted as UTC;
+invalid values are rejected even when the payload matches an existing job.
+This prevents timezone offsets from changing when a job becomes due.
+
+Existing database rows are not rewritten by this change. Historical non-UTC
+`run_at` values require a separately reviewed, transactional normalization
+before replay; no automatic migration or database reset is performed.
+
 ## The stack (one posture — `vra engine` prints these exact commands)
 
 | role | model · quant | size |

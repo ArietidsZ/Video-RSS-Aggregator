@@ -18,7 +18,9 @@ Implements contracts.JobQueue on top of :class:`vra.store.db.Database`.
   claimable.
 
 Timestamps compare lexicographically — all writers use
-``datetime.now(UTC).isoformat()`` (fixed-width UTC ISO-8601).
+UTC ISO-8601 with an explicit six-digit microsecond field. Legacy stored
+non-UTC deadlines need normalization before replay; serialization only
+normalizes new writes.
 """
 
 from __future__ import annotations
@@ -41,18 +43,20 @@ def _utc_now() -> datetime:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _iso(value: Any) -> str | None:
-    """Normalize a datetime (naive treated as UTC) to an ISO-8601 string."""
+    """Canonical UTC deadline; naive datetimes/ISO strings are treated as UTC."""
     if value is None:
         return None
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=UTC)
-        return value.isoformat()
-    return str(value)
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if not isinstance(value, datetime):
+        raise TypeError("run_at must be a datetime, ISO-8601 string, or None")
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -115,6 +119,7 @@ class SqlJobQueue:
         otherwise inserts a fresh queued job. ``dedup_key`` is accepted for
         caller readability and not persisted.
         """
+        normalized_run_at = _iso(run_at)
         del dedup_key  # advisory only; identity is kind + canonical payload
         payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         now = _now_iso()
@@ -139,7 +144,7 @@ class SqlJobQueue:
                 )
                 VALUES (?, ?, 'queued', ?, 0, 3, ?, ?, ?, ?)
                 """,
-                (job_id, kind.value, payload_json, _iso(run_at), video_id, now, now),
+                (job_id, kind.value, payload_json, normalized_run_at, video_id, now, now),
                 commit=False,
             )
             row = await self._db.fetchone(
@@ -219,8 +224,8 @@ class SqlJobQueue:
     async def requeue_stale(self, older_than_s: float) -> int:
         """Requeue running jobs with stale updated_at; returns the count."""
         now_dt = _utc_now()
-        cutoff = (now_dt - timedelta(seconds=older_than_s)).isoformat()
-        now = now_dt.isoformat()
+        cutoff = _iso(now_dt - timedelta(seconds=older_than_s))
+        now = _iso(now_dt)
         async with self._db.lock:
             rows = await self._db.execute(
                 """
