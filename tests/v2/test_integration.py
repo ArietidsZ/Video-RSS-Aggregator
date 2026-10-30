@@ -387,3 +387,34 @@ async def test_runtime_close_requeues_worker_and_preserves_done_video(tmp_path):
         assert (await SqlVideoStore(db).get_video(video.id)).status is VideoStatus.DONE
     finally:
         await db.close()
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_built_runtime_closes_feed_and_transcription_clients(tmp_path, cleanup_fails):
+    from vra.runtime import build_runtime
+
+    runtime = await build_runtime(_cfg(tmp_path))
+    feed_http = runtime.ingester._fetcher._client
+    transcriber = runtime.processor._transcriber
+    asr_http = transcriber._client
+    if cleanup_fails:
+        class FailingSummarizer:
+            async def close(self):
+                await runtime.engine.close()
+                raise RuntimeError("cleanup failed")
+        runtime = dc.replace(runtime, summarizer=FailingSummarizer())
+    try:
+        if cleanup_fails:
+            with pytest.raises(RuntimeError, match="cleanup failed"):
+                await runtime.close()
+        else:
+            await runtime.close()
+        assert feed_http.is_closed
+        assert asr_http.is_closed
+        assert runtime.queue._db._closed
+    finally:
+        # The red-phase regression also cleans up its deliberately exposed leak.
+        await feed_http.aclose()
+        await transcriber.close()
+        await runtime.engine.close()
+        await runtime.queue.close()

@@ -152,6 +152,8 @@ class AppRuntime:
     scheduler: PollScheduler
     summarizer: VlmSummarizer
     engine: EngineClient
+    _feed_http: httpx.AsyncClient | None = field(default=None, repr=False, compare=False)
+    _transcriber: OpenAiAsrTranscriber | None = field(default=None, repr=False, compare=False)
     _state: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     async def start(self) -> None:
@@ -193,9 +195,16 @@ class AppRuntime:
         self._state["tasks"] = []
         self._state.pop("stop", None)
         self._state["started"] = False
-        await self.scheduler.stop()
-        await self.summarizer.close()
-        await self.queue.close()
+        # These clients are created by build_runtime, not owned by the
+        # summarizer. Unwind every owned resource even if another close fails.
+        async with contextlib.AsyncExitStack() as cleanup:
+            cleanup.push_async_callback(self.queue.close)
+            if self._feed_http is not None:
+                cleanup.push_async_callback(self._feed_http.aclose)
+            if self._transcriber is not None:
+                cleanup.push_async_callback(self._transcriber.close)
+            cleanup.push_async_callback(self.summarizer.close)
+            await self.scheduler.stop()
 
     def stats(self) -> dict[str, Any]:
         return {
@@ -246,4 +255,6 @@ async def build_runtime(config: Config | None = None) -> AppRuntime:
         scheduler=scheduler,
         summarizer=summarizer,
         engine=engine,
+        _feed_http=http,
+        _transcriber=transcriber,
     )
