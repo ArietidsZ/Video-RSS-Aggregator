@@ -25,7 +25,6 @@ Design:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import importlib.resources
 import ipaddress
 import logging
@@ -55,6 +54,7 @@ from vra.api.gui import (
     setup_payload,
 )
 from vra.config import AsrMode, Config
+from vra.identity import source_identity
 from vra.rss import RssWriter
 from vra.types import JobKind, JobState
 
@@ -97,7 +97,7 @@ class ProcessBody(BaseModel):
 
 def canonical_for_source(source: str) -> str:
     """Cheap canonical id for a source URL/path before platform resolution."""
-    return "url:" + hashlib.sha1(source.encode("utf-8")).hexdigest()[:16]
+    return source_identity(source)
 
 
 def _iso(value: Any) -> str | None:
@@ -369,6 +369,9 @@ def create_app(runtime: _RuntimeLike) -> FastAPI:
         if body.video_id:
             video_id = body.video_id
         elif body.source_url:
+            body.source_url = body.source_url.strip()
+            if not body.source_url:
+                raise HTTPException(status_code=400, detail="source_url must not be blank")
             await validate_source_url(body.source_url, config)
             canonical = canonical_for_source(body.source_url)
             record = await runtime.store.get_video_by_canonical(canonical)
@@ -387,7 +390,7 @@ def create_app(runtime: _RuntimeLike) -> FastAPI:
 
         job = await runtime.queue.enqueue(
             JobKind.PROCESS,
-            {"video_id": video_id, "force": body.force},
+            {"video_id": video_id, **({"force": True} if body.force else {})},
             video_id=video_id,
         )
         return {"job_id": job.id, "video_id": video_id}

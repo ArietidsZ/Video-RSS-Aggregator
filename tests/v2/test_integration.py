@@ -292,3 +292,129 @@ async def test_asr_off_still_completes_without_transcript(tmp_path):
         assert counts["videos_by_status"].get("done", 0) == 1
     finally:
         await runtime.queue.close()
+
+
+@pytest.mark.parametrize("kind", [JobKind.INGEST, JobKind.PROCESS])
+@pytest.mark.parametrize("last_attempt", [False, True])
+async def test_cancelled_job_persists_retry_or_terminal_state(tmp_path, kind, last_attempt):
+    import asyncio
+
+    from vra.types import VideoStatus
+
+    runtime = await _make_runtime(
+        tmp_path, FakeFetcher(entries=[]), FakeAcquirer(), FakeTranscriber(),
+        FakeExtractor(), FakeSummarizer(),
+    )
+    entered = asyncio.Event()
+    video, _ = await runtime.store.upsert_video_ref(
+        canonical_id="cancel:test", source_url="https://example.com/video",
+        feed_id=None, guid=None, title=None, published_at=None,
+    )
+    job = await runtime.queue.enqueue(kind, {"video_id": video.id})
+    if last_attempt:
+        await runtime.queue._db.execute("UPDATE jobs SET attempts = 2 WHERE id = ?", (job.id,))
+    claimed = await runtime.queue.claim((kind,))
+    assert claimed is not None
+
+    async def interrupted():
+        if kind is JobKind.PROCESS:
+            await runtime.store.set_video_status(video.id, VideoStatus.ACQUIRING)
+        entered.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(_run_job(claimed, interrupted(), runtime.queue, runtime.store))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        saved = await runtime.queue.get(job.id)
+        assert saved.state is (JobState.FAILED if last_attempt else JobState.QUEUED)
+        assert saved.attempts == (3 if last_attempt else 1)
+        assert saved.error == "job cancelled during execution"
+        if kind is JobKind.PROCESS:
+            assert (await runtime.store.get_video(video.id)).status is VideoStatus.FAILED
+        if not last_attempt:
+            assert saved.run_at is not None
+            # Advance the durable deadline without sleeping or contacting a service.
+            await runtime.queue._db.execute("UPDATE jobs SET run_at = NULL WHERE id = ?", (job.id,))
+            retry = await runtime.queue.claim((kind,))
+            assert retry.id == job.id and retry.attempts == 2
+            async def done():
+                return "done"
+            await _run_job(retry, done(), runtime.queue, runtime.store)
+            assert (await runtime.queue.get(job.id)).state is JobState.DONE
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        await runtime.queue.close()
+
+
+async def test_runtime_close_requeues_worker_and_preserves_done_video(tmp_path):
+    import asyncio
+
+    from vra.types import VideoStatus
+
+    entered = asyncio.Event()
+
+    class CompletingProcessor:
+        async def process(self, video_id, *, force=False):
+            await runtime.store.set_video_status(video_id, VideoStatus.DONE)
+            entered.set()
+            await asyncio.Event().wait()
+
+    runtime = await _make_runtime(
+        tmp_path, FakeFetcher(entries=[]), FakeAcquirer(), FakeTranscriber(),
+        FakeExtractor(), FakeSummarizer(), cpu_workers=1,
+    )
+    runtime = dc.replace(runtime, processor=CompletingProcessor())
+    video, _ = await runtime.store.upsert_video_ref(
+        canonical_id="cancel:done", source_url="https://example.com/done",
+        feed_id=None, guid=None, title=None, published_at=None,
+    )
+    job = await runtime.queue.enqueue(JobKind.PROCESS, {"video_id": video.id})
+    try:
+        await runtime.start()
+        await asyncio.wait_for(entered.wait(), 2)
+    finally:
+        await runtime.close()
+    # A fresh connection proves recovery was committed before close returned.
+    db = await Database.connect(runtime.config.database_path)
+    try:
+        saved = await SqlJobQueue(db).get(job.id)
+        assert saved.state is JobState.QUEUED
+        assert (await SqlVideoStore(db).get_video(video.id)).status is VideoStatus.DONE
+    finally:
+        await db.close()
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_built_runtime_closes_feed_and_transcription_clients(tmp_path, cleanup_fails):
+    from vra.runtime import build_runtime
+
+    runtime = await build_runtime(_cfg(tmp_path))
+    feed_http = runtime.ingester._fetcher._client
+    transcriber = runtime.processor._transcriber
+    asr_http = transcriber._client
+    if cleanup_fails:
+        class FailingSummarizer:
+            async def close(self):
+                await runtime.engine.close()
+                raise RuntimeError("cleanup failed")
+        runtime = dc.replace(runtime, summarizer=FailingSummarizer())
+    try:
+        if cleanup_fails:
+            with pytest.raises(RuntimeError, match="cleanup failed"):
+                await runtime.close()
+        else:
+            await runtime.close()
+        assert feed_http.is_closed
+        assert asr_http.is_closed
+        assert runtime.queue._db._closed
+    finally:
+        # The red-phase regression also cleans up its deliberately exposed leak.
+        await feed_http.aclose()
+        await transcriber.close()
+        await runtime.engine.close()
+        await runtime.queue.close()

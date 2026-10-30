@@ -15,7 +15,12 @@ Worker model:
   stages (yt-dlp download, ffmpeg decode) run concurrently across workers.
 - Inference concurrency is managed by the serving engine (continuous
   batching); the app does not gate it further.
+- Local enqueue wakes idle workers by kind; the one-second fallback still
+  observes due retries and writes from other queue instances/processes.
 - On boot, running jobs stale for > 30 minutes are requeued.
+- Normal worker cancellation records a retry (or terminal failure at the
+  existing attempt limit) before SQLite closes. This is not a heartbeat or
+  recovery guarantee for forced termination, repeated cancellation or DB errors.
 """
 
 from __future__ import annotations
@@ -41,6 +46,7 @@ from vra.service.scheduler import PollScheduler
 from vra.store.db import Database
 from vra.store.queue import SqlJobQueue
 from vra.store.repos import SqlVideoStore
+from vra.types import VideoStatus
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +61,23 @@ async def _run_job(job: Job, coro: Any, queue: SqlJobQueue, store: SqlVideoStore
             await queue.fail(job.id, detail or "processing failed", retry=True)
         else:
             await queue.complete(job.id)
+    except asyncio.CancelledError:
+        # Normal shutdown waits for workers before closing SQLite. Persist the
+        # interruption here so a quick restart cannot strand a fresh running
+        # job behind the startup-only 30-minute stale threshold.
+        detail = "job cancelled during execution"
+        if job.kind is JobKind.PROCESS:
+            video_id = str(job.payload.get("video_id", ""))
+            try:
+                rec = await store.get_video(video_id)
+                if rec is not None and rec.status in (
+                    VideoStatus.ACQUIRING, VideoStatus.SUMMARIZING,
+                ):
+                    await store.set_video_status(video_id, VideoStatus.FAILED, error=detail)
+            except Exception:
+                log.exception("could not mark interrupted video %s as failed", video_id)
+        await queue.fail(job.id, detail, retry=True)
+        raise
     except Exception as exc:
         log.warning("job %s failed: %s", job.id, exc)
         await queue.fail(job.id, str(exc), retry=True)
@@ -76,9 +99,11 @@ async def _ingest_worker(
 ) -> None:
     while not stop.is_set():
         try:
+            wakeup = queue.work_wakeup(JobKind.INGEST)
             job = await queue.claim((JobKind.INGEST,))
             if job is None:
-                await asyncio.sleep(_POLL_INTERVAL_S)
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(wakeup(), _POLL_INTERVAL_S)
                 continue
             await _run_job(
                 job,
@@ -101,9 +126,11 @@ async def _process_worker(
 ) -> None:
     while not stop.is_set():
         try:
+            wakeup = queue.work_wakeup(JobKind.PROCESS)
             job = await queue.claim((JobKind.PROCESS,))
             if job is None:
-                await asyncio.sleep(_POLL_INTERVAL_S)
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(wakeup(), _POLL_INTERVAL_S)
                 continue
             await _run_job(
                 job,
@@ -131,6 +158,8 @@ class AppRuntime:
     scheduler: PollScheduler
     summarizer: VlmSummarizer
     engine: EngineClient
+    _feed_http: httpx.AsyncClient | None = field(default=None, repr=False, compare=False)
+    _transcriber: OpenAiAsrTranscriber | None = field(default=None, repr=False, compare=False)
     _state: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     async def start(self) -> None:
@@ -172,9 +201,16 @@ class AppRuntime:
         self._state["tasks"] = []
         self._state.pop("stop", None)
         self._state["started"] = False
-        await self.scheduler.stop()
-        await self.summarizer.close()
-        await self.queue.close()
+        # These clients are created by build_runtime, not owned by the
+        # summarizer. Unwind every owned resource even if another close fails.
+        async with contextlib.AsyncExitStack() as cleanup:
+            cleanup.push_async_callback(self.queue.close)
+            if self._feed_http is not None:
+                cleanup.push_async_callback(self._feed_http.aclose)
+            if self._transcriber is not None:
+                cleanup.push_async_callback(self._transcriber.close)
+            cleanup.push_async_callback(self.summarizer.close)
+            await self.scheduler.stop()
 
     def stats(self) -> dict[str, Any]:
         return {
@@ -225,4 +261,6 @@ async def build_runtime(config: Config | None = None) -> AppRuntime:
         scheduler=scheduler,
         summarizer=summarizer,
         engine=engine,
+        _feed_http=http,
+        _transcriber=transcriber,
     )

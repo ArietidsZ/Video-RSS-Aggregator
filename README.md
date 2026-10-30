@@ -42,6 +42,17 @@ vra status                                          # counts + jobs
 curl -s localhost:8080/rss?limit=20                 # consume the output
 ```
 
+## Queue deadlines
+
+New job deadlines accept datetimes or ISO-8601 strings and are stored in UTC
+with six-digit microsecond precision. Naive values are interpreted as UTC;
+invalid values are rejected even when the payload matches an existing job.
+This prevents timezone offsets from changing when a job becomes due.
+
+Existing database rows are not rewritten by this change. Historical non-UTC
+`run_at` values require a separately reviewed, transactional normalization
+before replay; no automatic migration or database reset is performed.
+
 ## The stack (one posture — `vra engine` prints these exact commands)
 
 | role | model · quant | size |
@@ -142,3 +153,18 @@ Architecture and frozen contracts: `docs/v2/SPEC.md`. Per-stage evidence
 - An OpenAI-compatible engine serving `VRA_MODEL` — see `vra engine`
   for the exact per-platform commands; ASR server optional
   (`VRA_ASR=off` to skip)
+
+### Source identity compatibility
+
+New feed and manual/API submissions share a versioned `source:v2:` SHA-256
+identity of the trimmed acquisition URL or path. Query parameters, their order,
+encoding, fragments and path case are preserved; feed GUID is metadata, not a
+substitute for the media source. This deliberately favors a possible duplicate
+for differently spelled URLs over silently collapsing different videos.
+
+Existing legacy IDs, video UUIDs, jobs and saved artifacts are not migrated,
+merged or deleted. Old query-stripped records may already contain mismatched
+source metadata and summaries, so they are not automatically reused. Re-ingesting
+an old source can create a new record and duplicate RSS item; historical repair
+requires explicit review/reprocessing. No database schema-version bump or reset
+is part of this change. Explicit processing by an existing video UUID is retained.

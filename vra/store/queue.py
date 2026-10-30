@@ -18,13 +18,17 @@ Implements contracts.JobQueue on top of :class:`vra.store.db.Database`.
   claimable.
 
 Timestamps compare lexicographically — all writers use
-``datetime.now(UTC).isoformat()`` (fixed-width UTC ISO-8601).
+UTC ISO-8601 with an explicit six-digit microsecond field. Legacy stored
+non-UTC deadlines need normalization before replay; serialization only
+normalizes new writes.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -41,18 +45,20 @@ def _utc_now() -> datetime:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _iso(value: Any) -> str | None:
-    """Normalize a datetime (naive treated as UTC) to an ISO-8601 string."""
+    """Canonical UTC deadline; naive datetimes/ISO strings are treated as UTC."""
     if value is None:
         return None
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=UTC)
-        return value.isoformat()
-    return str(value)
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if not isinstance(value, datetime):
+        raise TypeError("run_at must be a datetime, ISO-8601 string, or None")
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -99,6 +105,21 @@ class SqlJobQueue:
         self._db = db
         #: Hint for worker loops polling claim() (runtime-owned consumers).
         self.poll_interval_s = poll_interval_s
+        self._work_signals = {kind: asyncio.Event() for kind in JobKind}
+
+    def work_wakeup(self, kind: JobKind) -> Callable[[], Awaitable[bool]]:
+        """Snapshot a local generation before claim; wait only after an empty claim.
+
+        Enqueue rotates rather than clears the event, so concurrent workers
+        cannot consume another worker's notification. SQLite remains the
+        authority; writes through other instances still need polling fallback.
+        """
+        return self._work_signals[kind].wait
+
+    def _notify_work(self, kind: JobKind) -> None:
+        previous = self._work_signals[kind]
+        self._work_signals[kind] = asyncio.Event()
+        previous.set()
 
     async def enqueue(
         self,
@@ -115,6 +136,7 @@ class SqlJobQueue:
         otherwise inserts a fresh queued job. ``dedup_key`` is accepted for
         caller readability and not persisted.
         """
+        normalized_run_at = _iso(run_at)
         del dedup_key  # advisory only; identity is kind + canonical payload
         payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         now = _now_iso()
@@ -128,26 +150,32 @@ class SqlJobQueue:
                 """,
                 (kind.value, payload_json),
             )
-            if existing is not None:
-                return _job_from_row(existing)
-            job_id = str(uuid.uuid4())
-            await self._db.execute(
-                """
-                INSERT INTO jobs (
-                    id, kind, state, payload, attempts, max_attempts,
-                    run_at, video_id, created_at, updated_at
+            row = existing
+            if row is None:
+                job_id = str(uuid.uuid4())
+                await self._db.execute(
+                    """
+                    INSERT INTO jobs (
+                        id, kind, state, payload, attempts, max_attempts,
+                        run_at, video_id, created_at, updated_at
+                    )
+                    VALUES (?, ?, 'queued', ?, 0, 3, ?, ?, ?, ?)
+                    """,
+                    (job_id, kind.value, payload_json, normalized_run_at, video_id, now, now),
+                    commit=False,
                 )
-                VALUES (?, ?, 'queued', ?, 0, 3, ?, ?, ?, ?)
-                """,
-                (job_id, kind.value, payload_json, _iso(run_at), video_id, now, now),
-                commit=False,
-            )
-            row = await self._db.fetchone(
-                "SELECT * FROM jobs WHERE id = ?", (job_id,)
-            )
+                row = await self._db.fetchone(
+                    "SELECT * FROM jobs WHERE id = ?", (job_id,)
+                )
         if row is None:  # pragma: no cover - defensive
             raise RuntimeError(f"job insert failed: {job_id}")
-        return _job_from_row(row)
+        job = _job_from_row(row)
+        # Match claim's stored deadline ordering. Future work uses the existing
+        # timed fallback instead of waking every idle worker before it is due.
+        due = row["run_at"] is None or str(row["run_at"]) <= _now_iso()
+        if job.state is JobState.QUEUED and due:
+            self._notify_work(kind)
+        return job
 
     async def claim(self, kinds: tuple[JobKind, ...]) -> Job | None:
         """Atomically claim the oldest due queued job of any given kind."""
@@ -219,8 +247,8 @@ class SqlJobQueue:
     async def requeue_stale(self, older_than_s: float) -> int:
         """Requeue running jobs with stale updated_at; returns the count."""
         now_dt = _utc_now()
-        cutoff = (now_dt - timedelta(seconds=older_than_s)).isoformat()
-        now = now_dt.isoformat()
+        cutoff = _iso(now_dt - timedelta(seconds=older_than_s))
+        now = _iso(now_dt)
         async with self._db.lock:
             rows = await self._db.execute(
                 """
@@ -231,6 +259,9 @@ class SqlJobQueue:
                 """,
                 (now, now, cutoff),
             )
+        if rows:
+            for kind in JobKind:
+                self._notify_work(kind)
         return len(rows)
 
     async def list(

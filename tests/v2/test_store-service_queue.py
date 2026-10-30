@@ -238,3 +238,59 @@ async def test_queue_close_delegates_to_database(tmp_path: Path) -> None:
     queue = SqlJobQueue(db)
     await queue.close()
     assert db.path == str(tmp_path / "vra.db")  # attributes intact after close
+
+
+@pytest.mark.parametrize("as_string", [False, True])
+async def test_offset_deadlines_use_utc_instant(queue: SqlJobQueue, monkeypatch, as_string: bool) -> None:
+    from datetime import timezone
+
+    from vra.store import queue as module
+
+    now = datetime(2026, 10, 29, 12, tzinfo=UTC)
+    monkeypatch.setattr(module, "_now_iso", lambda: module._iso(now))
+    past = datetime(2026, 10, 29, 19, tzinfo=timezone(timedelta(hours=8)))
+    future = datetime(2026, 10, 29, 5, tzinfo=timezone(timedelta(hours=-8)))
+    later = await queue.enqueue(JobKind.PROCESS, {"offset": "future"},
+                                run_at=future.isoformat() if as_string else future)
+    due = await queue.enqueue(JobKind.PROCESS, {"offset": "past"},
+                              run_at=past.isoformat() if as_string else past)
+    assert due.run_at == datetime(2026, 10, 29, 11, tzinfo=UTC)
+    assert later.run_at == datetime(2026, 10, 29, 13, tzinfo=UTC)
+    assert (await queue.claim((JobKind.PROCESS,))).id == due.id
+    assert await queue.claim((JobKind.PROCESS,)) is None
+
+
+async def test_deadline_microsecond_boundary(queue: SqlJobQueue, monkeypatch) -> None:
+    from vra.store import queue as module
+
+    now = datetime(2026, 10, 29, 12, tzinfo=UTC)
+    monkeypatch.setattr(module, "_now_iso", lambda: module._iso(now))
+    await queue.enqueue(JobKind.PROCESS, {"future": 1}, run_at=now + timedelta(microseconds=1))
+    due = await queue.enqueue(JobKind.PROCESS, {"due": 1}, run_at=now.replace(tzinfo=None))
+    assert (await queue.claim((JobKind.PROCESS,))).id == due.id
+    assert await queue.claim((JobKind.PROCESS,)) is None
+
+
+@pytest.mark.parametrize("value", ["not a date", "2026-13-01", 123, [], {}])
+async def test_invalid_deadline_never_inserts(queue: SqlJobQueue, value) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        await queue.enqueue(JobKind.PROCESS, {"invalid": str(value)}, run_at=value)
+    assert await queue.list() == []
+
+
+def test_deadline_canonical_serialization() -> None:
+    from vra.store.queue import _iso
+
+    assert _iso(None) is None
+    expected = "2026-10-29T12:00:00.000000+00:00"
+    for value in ["2026-10-29T12:00:00Z", "2026-10-29T20:00:00+08:00",
+                  "2026-10-29T12:00:00", datetime(2026, 10, 29, 12)]:
+        assert _iso(value) == expected
+
+
+async def test_invalid_duplicate_deadline_is_rejected(queue: SqlJobQueue) -> None:
+    original = await queue.enqueue(JobKind.PROCESS, {"same": 1})
+    with pytest.raises(ValueError):
+        await queue.enqueue(JobKind.PROCESS, {"same": 1}, run_at="invalid")
+    jobs = await queue.list()
+    assert len(jobs) == 1 and jobs[0].id == original.id

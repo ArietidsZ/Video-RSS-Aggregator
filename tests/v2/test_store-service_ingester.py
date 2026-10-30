@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,11 +12,12 @@ from test_service_fakes import FakeFetcher
 
 import vra.service.ingester as ingester_module
 from vra.config import Config
+from vra.identity import source_identity
 from vra.service.ingester import FeedIngester, HttpFeedFetcher
 from vra.store.db import Database
 from vra.store.queue import SqlJobQueue
 from vra.store.repos import SqlVideoStore
-from vra.types import JobKind, JobState, VideoStatus
+from vra.types import JobKind, JobState, Summary, VideoStatus
 
 _RSS = """<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
@@ -81,15 +81,15 @@ async def test_ingest_new_videos_enqueued(
     assert result.feed.last_checked is not None
     assert result.feed.error is None
 
-    # first entry: absolute http guid becomes the canonical id
-    first = await store.get_video_by_canonical("https://youtu.be/aaa")
+    # GUID is metadata; the acquisition source determines identity
+    first = await store.get_video_by_canonical(source_identity("https://youtu.be/aaa"))
     assert first is not None
     assert first.status == VideoStatus.PENDING
     assert first.guid == "https://youtu.be/aaa"
     assert first.published_at == datetime(2025, 6, 1, tzinfo=UTC)
 
-    # second entry: normalized url (host lowered, query dropped), sha1[:16]
-    expected = "url:" + hashlib.sha1(b"https://example.com/b").hexdigest()[:16]
+    # Query and case are preserved rather than guessed equivalent
+    expected = source_identity("https://Example.com/b?utm_source=x")
     second = await store.get_video_by_canonical(expected)
     assert second is not None
     assert second.source_url == "https://Example.com/b?utm_source=x"
@@ -119,9 +119,9 @@ async def test_ingest_done_skipped_and_pending_deduped(
 
     # mark both done: third poll skips entirely
     for video in [
-        await store.get_video_by_canonical("https://youtu.be/aaa"),
+        await store.get_video_by_canonical(source_identity("https://youtu.be/aaa")),
         await store.get_video_by_canonical(
-            "url:" + hashlib.sha1(b"https://example.com/b").hexdigest()[:16]
+            source_identity("https://Example.com/b?utm_source=x")
         ),
     ]:
         assert video is not None
@@ -138,9 +138,9 @@ async def test_ingest_failed_video_reenqueued(
     ingester = FeedIngester(FakeFetcher(_entries()), store, queue, Config())
     await ingester.ingest("https://example.com/rss")
 
-    first = await store.get_video_by_canonical("https://youtu.be/aaa")
+    first = await store.get_video_by_canonical(source_identity("https://youtu.be/aaa"))
     second = await store.get_video_by_canonical(
-        "url:" + hashlib.sha1(b"https://example.com/b").hexdigest()[:16]
+        source_identity("https://Example.com/b?utm_source=x")
     )
     assert first is not None and second is not None
 
@@ -222,7 +222,7 @@ async def test_ingest_skips_entries_without_source_url(
     result = await ingester.ingest("https://example.com/rss")
     assert (result.new_videos, result.enqueued) == (1, 1)
     assert await store.get_video_by_canonical(
-        "url:" + hashlib.sha1(b"https://x/1").hexdigest()[:16]
+        source_identity("https://x/1")
     ) is not None
 
 
@@ -412,3 +412,65 @@ async def test_redirect_loop_is_bounded():
         with pytest.raises(ValueError, match='limit'):
             await HttpFeedFetcher(client, allow_private=True).fetch('http://localhost/start')
     assert len(seen) == 6
+
+
+async def test_query_distinctions_and_guid_reuse_do_not_overwrite(stack):
+    _, store, queue = stack
+    urls = ['https://youtube.com/watch?v=A', 'https://youtube.com/watch?v=B']
+    entries = [dict(source_url=url, title=url, guid='https://same-guid') for url in urls]
+    ingester = FeedIngester(FakeFetcher(entries), store, queue, Config())
+    result = await ingester.ingest('https://feed')
+    assert result.new_videos == 2
+    rows = [await store.get_video_by_canonical(source_identity(url)) for url in urls]
+    assert rows[0].id != rows[1].id
+    assert [row.source_url for row in rows] == urls
+    assert len(await queue.list(kind=JobKind.PROCESS)) == 2
+    assert (await ingester.ingest('https://feed')).new_videos == 0
+
+
+async def test_ambiguous_legacy_row_is_not_adopted_or_mutated(stack):
+    db, store, queue = stack
+    source = 'https://youtube.com/watch?v=B'
+    old, _ = await store.upsert_video_ref(
+        canonical_id='url:old-lossy-hash', source_url=source, feed_id=None,
+        guid='yt:video:B', title='old possibly mismatched artifact', published_at=None)
+    await store.set_video_status(old.id, VideoStatus.DONE)
+    await store.save_summary(old.id, Summary(summary='possibly source A, not B'))
+    old_summary = dict(await db.fetchone('SELECT * FROM summaries WHERE video_id = ?', (old.id,)))
+    old_job = await queue.enqueue(JobKind.PROCESS, {'video_id': old.id}, video_id=old.id)
+    result = await FeedIngester(FakeFetcher([dict(source_url=source, guid='yt:video:B')]),
+                                store, queue, Config()).ingest('https://feed')
+    assert result.new_videos == 1
+    current = await store.get_video_by_canonical(source_identity(source))
+    legacy = await store.get_video_by_canonical('url:old-lossy-hash')
+    assert current.id != legacy.id == old.id
+    assert legacy.status == VideoStatus.DONE
+    assert legacy.title == 'old possibly mismatched artifact'
+    assert dict(await db.fetchone('SELECT * FROM summaries WHERE video_id = ?', (old.id,))) == old_summary
+    assert any(job.id == old_job.id and job.video_id == old.id for job in await queue.list(kind=JobKind.PROCESS))
+
+
+@pytest.mark.parametrize('feed_first', [True, False])
+async def test_feed_and_api_share_record_and_default_job(stack, feed_first):
+    from types import SimpleNamespace
+
+    from vra.api.app import create_app
+    _, store, queue = stack
+    source = 'http://localhost/video?v=A'
+    config = Config(allow_private_net=True)
+    ingester = FeedIngester(FakeFetcher([dict(source_url=source, guid='yt:video:A')]),
+                            store, queue, config)
+    app = create_app(SimpleNamespace(config=config, store=store, queue=queue))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                 base_url='http://test') as client:
+        if feed_first:
+            await ingester.ingest('http://localhost/feed')
+        response = await client.post('/process', json={'source_url': source})
+        assert response.status_code == 200
+        if not feed_first:
+            await ingester.ingest('http://localhost/feed')
+    record = await store.get_video_by_canonical(source_identity(source))
+    assert response.json()['video_id'] == record.id
+    jobs = await queue.list(kind=JobKind.PROCESS)
+    assert len(jobs) == 1
+    assert jobs[0].video_id == record.id
