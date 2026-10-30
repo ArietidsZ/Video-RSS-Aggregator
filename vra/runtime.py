@@ -15,6 +15,8 @@ Worker model:
   stages (yt-dlp download, ffmpeg decode) run concurrently across workers.
 - Inference concurrency is managed by the serving engine (continuous
   batching); the app does not gate it further.
+- Local enqueue wakes idle workers by kind; the one-second fallback still
+  observes due retries and writes from other queue instances/processes.
 - On boot, running jobs stale for > 30 minutes are requeued.
 - Normal worker cancellation records a retry (or terminal failure at the
   existing attempt limit) before SQLite closes. This is not a heartbeat or
@@ -97,9 +99,11 @@ async def _ingest_worker(
 ) -> None:
     while not stop.is_set():
         try:
+            wakeup = queue.work_wakeup(JobKind.INGEST)
             job = await queue.claim((JobKind.INGEST,))
             if job is None:
-                await asyncio.sleep(_POLL_INTERVAL_S)
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(wakeup(), _POLL_INTERVAL_S)
                 continue
             await _run_job(
                 job,
@@ -122,9 +126,11 @@ async def _process_worker(
 ) -> None:
     while not stop.is_set():
         try:
+            wakeup = queue.work_wakeup(JobKind.PROCESS)
             job = await queue.claim((JobKind.PROCESS,))
             if job is None:
-                await asyncio.sleep(_POLL_INTERVAL_S)
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(wakeup(), _POLL_INTERVAL_S)
                 continue
             await _run_job(
                 job,

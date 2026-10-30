@@ -25,8 +25,10 @@ normalizes new writes.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -103,6 +105,21 @@ class SqlJobQueue:
         self._db = db
         #: Hint for worker loops polling claim() (runtime-owned consumers).
         self.poll_interval_s = poll_interval_s
+        self._work_signals = {kind: asyncio.Event() for kind in JobKind}
+
+    def work_wakeup(self, kind: JobKind) -> Callable[[], Awaitable[bool]]:
+        """Snapshot a local generation before claim; wait only after an empty claim.
+
+        Enqueue rotates rather than clears the event, so concurrent workers
+        cannot consume another worker's notification. SQLite remains the
+        authority; writes through other instances still need polling fallback.
+        """
+        return self._work_signals[kind].wait
+
+    def _notify_work(self, kind: JobKind) -> None:
+        previous = self._work_signals[kind]
+        self._work_signals[kind] = asyncio.Event()
+        previous.set()
 
     async def enqueue(
         self,
@@ -133,26 +150,32 @@ class SqlJobQueue:
                 """,
                 (kind.value, payload_json),
             )
-            if existing is not None:
-                return _job_from_row(existing)
-            job_id = str(uuid.uuid4())
-            await self._db.execute(
-                """
-                INSERT INTO jobs (
-                    id, kind, state, payload, attempts, max_attempts,
-                    run_at, video_id, created_at, updated_at
+            row = existing
+            if row is None:
+                job_id = str(uuid.uuid4())
+                await self._db.execute(
+                    """
+                    INSERT INTO jobs (
+                        id, kind, state, payload, attempts, max_attempts,
+                        run_at, video_id, created_at, updated_at
+                    )
+                    VALUES (?, ?, 'queued', ?, 0, 3, ?, ?, ?, ?)
+                    """,
+                    (job_id, kind.value, payload_json, normalized_run_at, video_id, now, now),
+                    commit=False,
                 )
-                VALUES (?, ?, 'queued', ?, 0, 3, ?, ?, ?, ?)
-                """,
-                (job_id, kind.value, payload_json, normalized_run_at, video_id, now, now),
-                commit=False,
-            )
-            row = await self._db.fetchone(
-                "SELECT * FROM jobs WHERE id = ?", (job_id,)
-            )
+                row = await self._db.fetchone(
+                    "SELECT * FROM jobs WHERE id = ?", (job_id,)
+                )
         if row is None:  # pragma: no cover - defensive
             raise RuntimeError(f"job insert failed: {job_id}")
-        return _job_from_row(row)
+        job = _job_from_row(row)
+        # Match claim's stored deadline ordering. Future work uses the existing
+        # timed fallback instead of waking every idle worker before it is due.
+        due = row["run_at"] is None or str(row["run_at"]) <= _now_iso()
+        if job.state is JobState.QUEUED and due:
+            self._notify_work(kind)
+        return job
 
     async def claim(self, kinds: tuple[JobKind, ...]) -> Job | None:
         """Atomically claim the oldest due queued job of any given kind."""
@@ -236,6 +259,9 @@ class SqlJobQueue:
                 """,
                 (now, now, cutoff),
             )
+        if rows:
+            for kind in JobKind:
+                self._notify_work(kind)
         return len(rows)
 
     async def list(
