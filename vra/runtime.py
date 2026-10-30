@@ -16,6 +16,9 @@ Worker model:
 - Inference concurrency is managed by the serving engine (continuous
   batching); the app does not gate it further.
 - On boot, running jobs stale for > 30 minutes are requeued.
+- Normal worker cancellation records a retry (or terminal failure at the
+  existing attempt limit) before SQLite closes. This is not a heartbeat or
+  recovery guarantee for forced termination, repeated cancellation or DB errors.
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from vra.service.scheduler import PollScheduler
 from vra.store.db import Database
 from vra.store.queue import SqlJobQueue
 from vra.store.repos import SqlVideoStore
+from vra.types import VideoStatus
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +59,23 @@ async def _run_job(job: Job, coro: Any, queue: SqlJobQueue, store: SqlVideoStore
             await queue.fail(job.id, detail or "processing failed", retry=True)
         else:
             await queue.complete(job.id)
+    except asyncio.CancelledError:
+        # Normal shutdown waits for workers before closing SQLite. Persist the
+        # interruption here so a quick restart cannot strand a fresh running
+        # job behind the startup-only 30-minute stale threshold.
+        detail = "job cancelled during execution"
+        if job.kind is JobKind.PROCESS:
+            video_id = str(job.payload.get("video_id", ""))
+            try:
+                rec = await store.get_video(video_id)
+                if rec is not None and rec.status in (
+                    VideoStatus.ACQUIRING, VideoStatus.SUMMARIZING,
+                ):
+                    await store.set_video_status(video_id, VideoStatus.FAILED, error=detail)
+            except Exception:
+                log.exception("could not mark interrupted video %s as failed", video_id)
+        await queue.fail(job.id, detail, retry=True)
+        raise
     except Exception as exc:
         log.warning("job %s failed: %s", job.id, exc)
         await queue.fail(job.id, str(exc), retry=True)
